@@ -1153,7 +1153,7 @@ EOF
   "port": ${kcp_port},
   "protocol": "vless",
   "tag": "3x-kcp",
-  "settings": {"clients": [], "decryption": "${kcp_dec}", "encryption": "${kcp_enc}", "fallbacks": []},
+  "settings": {"clients": [], "decryption": "${kcp_dec}", "encryption": "${kcp_enc}"},
   "streamSettings": {
     "network": "kcp",
     "security": "none",
