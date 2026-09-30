@@ -82,6 +82,8 @@ bash x-ui-latest.sh -subdomain panel.example.com
 
 \* mKCP собирается с **VLESS Encryption** (X25519): современные ядра Xray запрещают «голый» VLESS без TLS, поэтому ссылки mKCP требуют клиента с поддержкой VLESS Encryption (Xray 25.x+, свежий Happ).
 
+\* **AmneziaWG** получает случайный набор обфускации **AmneziaWG 3.1** — его генерирует сама панель (как при создании инбаунда через UI): Jc/Jmin/Jmax, S1–S4, H1–H4, I1, header protection, тайминги, RandomTrailers/DisableCookies. Для импорта `vpn://` нужен свежий AmneziaVPN с поддержкой 3.1.
+
 ---
 
 ## Вечная подписка

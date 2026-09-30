@@ -258,7 +258,6 @@ MTR_PORT='${mtr_backend_port}'
 DIAG_PATH='${diag_path}'
 DIAG_TOKEN='${diag_token}'
 WG_KEY='${wg_key}'
-AWG_KEY='${awg_key}'
 CLIENT_EMAIL='${client_email}'
 CLIENT_SUBID='${client_subid}'
 CLIENT_SUBID_WG='${client_subid_wg}'
@@ -1417,6 +1416,12 @@ EOF
     ALL_IDS+=("$id"); WG_ID="$id"
 
     # ── 16. AmneziaWG (own UDP port) ─────────────────────────────────────────
+    # Empty settings: the panel generates a fresh randomized AmneziaWG 3.1
+    # obfuscation set (Jc/Jmin/Jmax, S1-S4, H1-H4, I1, HeaderProtectionKey,
+    # timings, RandomTrailers/DisableCookies) plus the server keypair — the same
+    # path the UI uses for new inbounds. Clients need AmneziaWG 3.1 support
+    # (recent AmneziaVPN); every generated parameter is mirrored into the
+    # subscription's vpn:// config.
     f=$(json_file amneziawg.json)
     cat > "$f" <<EOF
 {
@@ -1426,30 +1431,7 @@ EOF
   "port": ${awg_port},
   "protocol": "amneziawg",
   "tag": "3x-awg",
-  "settings": {
-    "server": {
-      "privateKey": "${awg_key}",
-      "subnetIp": "10.8.1.0",
-      "subnetCidr": 24,
-      "mtu": 1280,
-      "primaryDns": "8.8.8.8",
-      "secondaryDns": "8.8.4.4",
-      "jc": 5,
-      "jmin": 10,
-      "jmax": 50,
-      "s1": 30,
-      "s2": 45,
-      "s3": 10,
-      "s4": 5,
-      "h1": "",
-      "h2": "",
-      "h3": "",
-      "h4": "",
-      "randomTrailers": false,
-      "disableCookies": false
-    },
-    "clients": []
-  },
+  "settings": {},
   "sniffing": ${sniff_off}
 }
 EOF
@@ -1925,7 +1907,6 @@ generate_state() {
     gen_reality_keys
 
     wg_key=$(gen_wg_key)
-    awg_key=$(gen_wg_key)
     ss_password=$(openssl rand -base64 32)
 }
 
@@ -1995,7 +1976,6 @@ patch_state() {
     client_subid_wg="${CLIENT_SUBID_WG:-$(gen_random_string 14)}"
     client_subid_awg="${CLIENT_SUBID_AWG:-$(gen_random_string 14)}"
     wg_key="${WG_KEY:-$(gen_wg_key)}"
-    awg_key="${AWG_KEY:-$(gen_wg_key)}"
     ss_password="${SS_PASSWORD:-$(openssl rand -base64 32)}"
 }
 

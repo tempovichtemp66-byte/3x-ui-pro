@@ -108,7 +108,7 @@ subscription URLs and client credentials survive re-runs.
 | 3x-tuic | tuic | random UDP | QUIC sidecar |
 | 3x-mtproto | mtproto | random loopback | mtg-multi, FakeTLS SNI via nginx |
 | 3x-wireguard | wireguard | random UDP | Xray wireguard |
-| 3x-awg | amneziawg | random UDP | in-panel AmneziaWG |
+| 3x-awg | amneziawg | random UDP | in-panel AmneziaWG (random 3.1 obfuscation, panel-generated) |
 
 ## Panel / xray-core quirks worked around
 
@@ -126,6 +126,11 @@ Verified against 3x-ui v3 + xray-core 26.9.9 on a live server:
   (h2→h1 for WebSocket) and the inbound drops the connection.
 * Plain VLESS (no TLS, no vlessenc) is only allowed for private addresses, so
   mKCP carries VLESS Encryption generated via `GET /server/getNewVlessEnc`.
+* The AmneziaWG inbound is created with empty settings on purpose: the panel then
+  runs its own `GenerateObfuscation31()` (random Jc/Jmin/Jmax, S1-S4, H1-H4, I1,
+  HeaderProtectionKey, timings, RandomTrailers/DisableCookies) and generates the
+  server keypair — i.e. the newest AmneziaWG 3.1 set, mirrored into the `vpn://`
+  client config. Clients need AmneziaWG 3.1 support (recent AmneziaVPN).
 * The panel's JSON subscription skips TUIC/AmneziaWG/MTProto and has no `proxy`
   outbound for MTProto; their links are only in raw/Clash subscriptions.
 * `subJsonRoutingRules` (RoscomVPN) makes JSON subscription routing reference
