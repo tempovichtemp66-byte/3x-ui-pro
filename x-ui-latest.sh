@@ -259,6 +259,8 @@ WG_KEY='${wg_key}'
 AWG_KEY='${awg_key}'
 CLIENT_EMAIL='${client_email}'
 CLIENT_SUBID='${client_subid}'
+CLIENT_SUBID_WG='${client_subid_wg}'
+CLIENT_SUBID_AWG='${client_subid_awg}'
 EOF
     chmod 600 "$STATE_FILE"
 }
@@ -987,7 +989,7 @@ install_inbounds() {
   "port": ${reality_port},
   "protocol": "vless",
   "tag": "3x-reality",
-  "settings": {"clients": [], "decryption": "none", "fallbacks": []},
+  "settings": {"clients": [], "decryption": "none", "encryption": "none", "fallbacks": []},
   "streamSettings": {
     "network": "tcp",
     "security": "reality",
@@ -1032,7 +1034,7 @@ EOF
   "port": ${ws_port},
   "protocol": "vless",
   "tag": "3x-ws",
-  "settings": {"clients": [], "decryption": "none", "fallbacks": []},
+  "settings": {"clients": [], "decryption": "none", "encryption": "none", "fallbacks": []},
   "streamSettings": {
     "network": "ws",
     "security": "none",
@@ -1047,7 +1049,7 @@ EOF
 }
 EOF
     id=$(add_inbound "3x-ws" "$f"); [[ -n "$id" ]] || exit 1
-    ALL_IDS+=("$id"); FRONTED_IDS+=("$id")
+    ALL_IDS+=("$id"); WS_ID="$id"
 
     # ── 3. VLESS + gRPC ──────────────────────────────────────────────────────
     f=$(json_file grpc.json)
@@ -1059,7 +1061,7 @@ EOF
   "port": ${grpc_port},
   "protocol": "vless",
   "tag": "3x-grpc",
-  "settings": {"clients": [], "decryption": "none", "fallbacks": []},
+  "settings": {"clients": [], "decryption": "none", "encryption": "none", "fallbacks": []},
   "streamSettings": {
     "network": "grpc",
     "security": "none",
@@ -1073,7 +1075,7 @@ EOF
 }
 EOF
     id=$(add_inbound "3x-grpc" "$f"); [[ -n "$id" ]] || exit 1
-    ALL_IDS+=("$id"); FRONTED_IDS+=("$id")
+    ALL_IDS+=("$id"); GRPC_ID="$id"
 
     # ── 4. VLESS + HTTPUpgrade ───────────────────────────────────────────────
     f=$(json_file httpupgrade.json)
@@ -1085,7 +1087,7 @@ EOF
   "port": ${httpupgrade_port},
   "protocol": "vless",
   "tag": "3x-httpupgrade",
-  "settings": {"clients": [], "decryption": "none", "fallbacks": []},
+  "settings": {"clients": [], "decryption": "none", "encryption": "none", "fallbacks": []},
   "streamSettings": {
     "network": "httpupgrade",
     "security": "none",
@@ -1100,7 +1102,7 @@ EOF
 }
 EOF
     id=$(add_inbound "3x-httpupgrade" "$f"); [[ -n "$id" ]] || exit 1
-    ALL_IDS+=("$id"); FRONTED_IDS+=("$id")
+    ALL_IDS+=("$id"); HTTPUPGRADE_ID="$id"
 
     # ── 5. VLESS + XHTTP (packet-up, HTTP/1.1-friendly) ──────────────────────
     f=$(json_file xhttp.json)
@@ -1112,7 +1114,7 @@ EOF
   "port": ${xhttp_port},
   "protocol": "vless",
   "tag": "3x-xhttp",
-  "settings": {"clients": [], "decryption": "none", "fallbacks": []},
+  "settings": {"clients": [], "decryption": "none", "encryption": "none", "fallbacks": []},
   "streamSettings": {
     "network": "xhttp",
     "security": "none",
@@ -1130,9 +1132,18 @@ EOF
 }
 EOF
     id=$(add_inbound "3x-xhttp" "$f"); [[ -n "$id" ]] || exit 1
-    ALL_IDS+=("$id"); FRONTED_IDS+=("$id")
+    ALL_IDS+=("$id"); XHTTP_ID="$id"
 
     # ── 6. VLESS + mKCP (own UDP port) ───────────────────────────────────────
+    # Xray-core v26 refuses plain VLESS without transport TLS (only private
+    # addresses are exempt), so mKCP carries VLESS-level encryption instead.
+    local kcp_dec="none" kcp_enc="none" vless_enc
+    vless_enc=$(api GET /server/getNewVlessEnc)
+    if echo "$vless_enc" | api_ok; then
+        kcp_dec=$(echo "$vless_enc" | jq -r '[.obj.auths[]? | select(.id == "x25519")][0].decryption // empty')
+        kcp_enc=$(echo "$vless_enc" | jq -r '[.obj.auths[]? | select(.id == "x25519")][0].encryption // empty')
+        [[ -n "$kcp_dec" && -n "$kcp_enc" ]] || { kcp_dec="none"; kcp_enc="none"; }
+    fi
     f=$(json_file kcp.json)
     cat > "$f" <<EOF
 {
@@ -1142,7 +1153,7 @@ EOF
   "port": ${kcp_port},
   "protocol": "vless",
   "tag": "3x-kcp",
-  "settings": {"clients": [], "decryption": "none", "fallbacks": []},
+  "settings": {"clients": [], "decryption": "${kcp_dec}", "encryption": "${kcp_enc}", "fallbacks": []},
   "streamSettings": {
     "network": "kcp",
     "security": "none",
@@ -1186,7 +1197,7 @@ EOF
 }
 EOF
     id=$(add_inbound "3x-trojan-ws" "$f"); [[ -n "$id" ]] || exit 1
-    ALL_IDS+=("$id"); FRONTED_IDS+=("$id")
+    ALL_IDS+=("$id"); TROJAN_WS_ID="$id"
 
     # ── 8. Trojan + gRPC ─────────────────────────────────────────────────────
     f=$(json_file trojan_grpc.json)
@@ -1212,7 +1223,7 @@ EOF
 }
 EOF
     id=$(add_inbound "3x-trojan-grpc" "$f"); [[ -n "$id" ]] || exit 1
-    ALL_IDS+=("$id"); FRONTED_IDS+=("$id")
+    ALL_IDS+=("$id"); TROJAN_GRPC_ID="$id"
 
     # ── 9. VMess + WebSocket ─────────────────────────────────────────────────
     f=$(json_file vmess_ws.json)
@@ -1239,7 +1250,7 @@ EOF
 }
 EOF
     id=$(add_inbound "3x-vmess-ws" "$f"); [[ -n "$id" ]] || exit 1
-    ALL_IDS+=("$id"); FRONTED_IDS+=("$id")
+    ALL_IDS+=("$id"); VMESS_WS_ID="$id"
 
     # ── 10. VMess + gRPC ─────────────────────────────────────────────────────
     f=$(json_file vmess_grpc.json)
@@ -1265,7 +1276,7 @@ EOF
 }
 EOF
     id=$(add_inbound "3x-vmess-grpc" "$f"); [[ -n "$id" ]] || exit 1
-    ALL_IDS+=("$id"); FRONTED_IDS+=("$id")
+    ALL_IDS+=("$id"); VMESS_GRPC_ID="$id"
 
     # ── 11. Shadowsocks-2022 (own TCP/UDP port) ──────────────────────────────
     f=$(json_file ss.json)
@@ -1446,34 +1457,50 @@ EOF
 # ─────────────────────────────────────────────────────────────────────────────
 # ETERNAL CLIENT + HOSTS
 # ─────────────────────────────────────────────────────────────────────────────
-install_eternal_client() {
-    local ids_json payload resp
-    ids_json=$(printf '%s\n' "${ALL_IDS[@]}" | jq -R 'tonumber' | jq -s -c '.')
-
-    payload="${WORKDIR}/client.json"
+create_eternal_client() { # <email> <subid> <inbound-ids-csv> [flow]
+    local email="$1" subid="$2" ids_csv="$3" flow="${4:-}"
+    local payload="${WORKDIR}/client-${email}.json" resp
+    local ids_json
+    ids_json=$(echo "$ids_csv" | tr ',' '\n' | grep -v '^$' | jq -R 'tonumber' | jq -s -c '.')
     cat > "$payload" <<EOF
 {
   "client": {
-    "email": "${client_email}",
-    "subId": "${client_subid}",
+    "email": "${email}",
+    "subId": "${subid}",
     "totalGB": 0,
     "expiryTime": 0,
     "enable": true,
     "limitIp": 0,
-    "flow": "xtls-rprx-vision",
+    "flow": "${flow}",
     "comment": "3x-ui-pro eternal subscription (no expiry, unlimited)"
   },
   "inboundIds": ${ids_json}
 }
 EOF
-
     resp=$(api POST /clients/add -H 'Content-Type: application/json' --data-binary "@${payload}")
     if echo "$resp" | api_ok; then
-        msg_ok "Eternal client '${client_email}' attached to all inbounds."
+        msg_ok "Eternal client '${email}' created."
     else
-        msg_err "Failed to create client: $(echo "$resp" | jq -r '.msg // "unknown error"')"
+        msg_err "Failed to create client '${email}': $(echo "$resp" | jq -r '.msg // "unknown error"')"
         exit 1
     fi
+}
+
+install_eternal_clients() {
+    # The panel keeps ONE shared WireGuard keypair + tunnel address per client,
+    # so a client attached to both WireGuard and AmneziaWG ends up advertising
+    # the other tunnel's keys in its subscription. Each tunnel protocol
+    # therefore gets its own eternal client.
+    local main_ids="" i
+    for i in "${ALL_IDS[@]}"; do
+        [[ "$i" == "$WG_ID" || "$i" == "$AWG_ID" ]] && continue
+        main_ids+="${i},"
+    done
+    main_ids="${main_ids%,}"
+
+    create_eternal_client "${client_email}"     "${client_subid}"     "${main_ids}" "xtls-rprx-vision"
+    create_eternal_client "${client_email}-wg"  "${client_subid_wg}"  "${WG_ID}"    ""
+    create_eternal_client "${client_email}-awg" "${client_subid_awg}" "${AWG_ID}"   ""
 }
 
 delete_managed_hosts() {
@@ -1485,11 +1512,12 @@ delete_managed_hosts() {
     done
 }
 
-add_host_group() { # add_host_group <remark> <inbound-ids-csv> <address:port> <security> <sni>
-    local remark="$1" ids_csv="$2" endpoint="$3" security="$4" hsni="$5"
+add_host_group() { # add_host_group <remark> <inbound-ids-csv> <address:port> <security> <sni> [alpn-csv]
+    local remark="$1" ids_csv="$2" endpoint="$3" security="$4" hsni="$5" alpn_csv="${6:-}"
     local payload="${WORKDIR}/host.json" resp
-    local ids_json
+    local ids_json alpn_json="[]"
     ids_json=$(echo "$ids_csv" | tr ',' '\n' | jq -R 'tonumber' | jq -s -c '.')
+    [[ -n "$alpn_csv" ]] && alpn_json=$(echo "$alpn_csv" | tr ',' '\n' | jq -R . | jq -s -c '.')
     cat > "$payload" <<EOF
 {
   "inboundIds": ${ids_json},
@@ -1499,7 +1527,7 @@ add_host_group() { # add_host_group <remark> <inbound-ids-csv> <address:port> <s
   "security": "${security}",
   "sni": "${hsni}",
   "fingerprint": "firefox",
-  "alpn": ["h2", "http/1.1"]
+  "alpn": ${alpn_json}
 }
 EOF
     resp=$(api POST /hosts/add -H 'Content-Type: application/json' --data-binary "@${payload}")
@@ -1511,21 +1539,29 @@ EOF
 }
 
 install_hosts() {
-    local fronted
-    fronted=$(IFS=,; echo "${FRONTED_IDS[*]}")
-
-    # REALITY keeps its own TLS params; only the public address/port is overridden.
-    add_host_group "3x-ui-pro reality"  "$REALITY_ID"    "${domain}:443" "same"    "${sni_domain}"
-    # Everything TLS-terminated by nginx shares the same domain:443 endpoint.
-    add_host_group "3x-ui-pro fronted"  "$fronted"       "${domain}:443" "tls"     ""
+    # REALITY keeps its own TLS params; only the public address/port is
+    # overridden. No host SNI: with one set, the panel injects
+    # realitySettings.serverNames into the JSON subscription client configs,
+    # and xray-core v26 clients reject that field (they want serverName).
+    # The link still gets its SNI from the inbound's own serverNames.
+    add_host_group "3x-ui-pro reality" "$REALITY_ID" "${domain}:443" "same" "" ""
+    # ALPN must match the transport: WebSocket/HTTPUpgrade speak HTTP/1.1,
+    # gRPC needs h2, XHTTP accepts both. A wrong ALPN makes nginx translate the
+    # protocol and the xray inbound drops the connection.
+    add_host_group "3x-ui-pro ws" \
+        "$WS_ID,$TROJAN_WS_ID,$VMESS_WS_ID,$HTTPUPGRADE_ID" "${domain}:443" "tls" "" "http/1.1"
+    add_host_group "3x-ui-pro grpc" \
+        "$GRPC_ID,$TROJAN_GRPC_ID,$VMESS_GRPC_ID" "${domain}:443" "tls" "" "h2"
+    add_host_group "3x-ui-pro xhttp" \
+        "$XHTTP_ID" "${domain}:443" "tls" "" "h2,http/1.1"
     # UDP / sidecar protocols advertise their own ports.
-    add_host_group "3x-ui-pro hysteria" "$HYSTERIA_ID"   "${domain}:443" "tls"     "${domain}"
-    add_host_group "3x-ui-pro kcp"      "$KCP_ID"        "${domain}:${kcp_port}" "none" ""
-    add_host_group "3x-ui-pro tuic"     "$TUIC_ID"       "${domain}:${tuic_port}" "tls" "${domain}"
-    add_host_group "3x-ui-pro ss"       "$SS_ID"         "${domain}:${ss_port}" "none" ""
-    add_host_group "3x-ui-pro wireguard" "$WG_ID"        "${domain}:${wg_port}" "none" ""
-    add_host_group "3x-ui-pro awg"      "$AWG_ID"        "${domain}:${awg_port}" "none" ""
-    add_host_group "3x-ui-pro mtproto"  "$MTPROTO_ID"    "${domain}:443" "none"    ""
+    add_host_group "3x-ui-pro hysteria" "$HYSTERIA_ID" "${domain}:443" "tls" "${domain}" ""
+    add_host_group "3x-ui-pro kcp"      "$KCP_ID"      "${domain}:${kcp_port}" "none" "" ""
+    add_host_group "3x-ui-pro tuic"     "$TUIC_ID"     "${domain}:${tuic_port}" "tls" "${domain}" ""
+    add_host_group "3x-ui-pro ss"       "$SS_ID"       "${domain}:${ss_port}" "none" "" ""
+    add_host_group "3x-ui-pro wireguard" "$WG_ID"      "${domain}:${wg_port}" "none" "" ""
+    add_host_group "3x-ui-pro awg"      "$AWG_ID"      "${domain}:${awg_port}" "none" "" ""
+    add_host_group "3x-ui-pro mtproto"  "$MTPROTO_ID"  "${domain}:443" "none" "" ""
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1798,17 +1834,20 @@ show_results() {
         echo -e "Username:  ${config_username}"
         echo -e "Password:  ${config_password}"
         msg_inf "────────────────────────────────────────────────────────────────────────────────"
-        msg_inf "Eternal client (no expiry, unlimited traffic): ${client_email}"
+        msg_inf "Eternal clients (no expiry, unlimited traffic): ${client_email}, ${client_email}-wg, ${client_email}-awg"
         msg_inf "Raw subscription:     https://${domain}/${sub_path}/${client_subid}"
         msg_inf "JSON subscription:    https://${domain}/${json_path}/${client_subid}"
         msg_inf "Clash subscription:   https://${domain}/${clash_path}/${client_subid}"
-        msg_inf "(use the JSON subscription in Happ — RoscomVPN routing rides along)"
+        msg_inf "  (use the JSON subscription in Happ — RoscomVPN routing rides along)"
+        msg_inf "WireGuard (raw):         https://${domain}/${sub_path}/${client_subid_wg}"
+        msg_inf "AmneziaWG (raw/vpn://):  https://${domain}/${sub_path}/${client_subid_awg}"
         msg_inf "────────────────────────────────────────────────────────────────────────────────"
         msg_inf "SNI masking: ${sni_domain}  |  cover site: ${cover}"
         echo -e "443/tcp : reality, ws, grpc, httpupgrade, xhttp, trojan, vmess, mtproto"
         echo -e "443/udp : hysteria2"
         echo -e "kcp/udp : ${kcp_port}   tuic/udp: ${tuic_port}   wireguard/udp: ${wg_port}"
         echo -e "awg/udp : ${awg_port}   shadowsocks tcp+udp: ${ss_port}"
+        msg_inf "mKCP links require a client with VLESS Encryption (Xray 25.x+/Happ)"
         msg_inf "────────────────────────────────────────────────────────────────────────────────"
         msg_inf "Network Diagnostics (panel login required): https://${domain}/${panel_path}/diag"
         if [[ "$WARP_ENABLED" == "true" ]]; then
@@ -1873,6 +1912,8 @@ generate_state() {
     config_password=$(gen_random_string 10)
     client_email="eternal"
     client_subid=$(gen_random_string 14)
+    client_subid_wg=$(gen_random_string 14)
+    client_subid_awg=$(gen_random_string 14)
 
     reality_fp=$(shuf -e chrome firefox safari edge 2>/dev/null | head -1)
     [[ -n "$reality_fp" ]] || reality_fp="firefox"
@@ -1948,6 +1989,8 @@ patch_state() {
     config_password=$(gen_random_string 10)
     client_email="${CLIENT_EMAIL:-eternal}"
     client_subid="${CLIENT_SUBID:-$(gen_random_string 14)}"
+    client_subid_wg="${CLIENT_SUBID_WG:-$(gen_random_string 14)}"
+    client_subid_awg="${CLIENT_SUBID_AWG:-$(gen_random_string 14)}"
     wg_key="${WG_KEY:-$(gen_wg_key)}"
     awg_key="${AWG_KEY:-$(gen_wg_key)}"
     ss_password="${SS_PASSWORD:-$(openssl rand -base64 32)}"
@@ -1957,7 +2000,6 @@ patch_state() {
 # MAIN
 # ─────────────────────────────────────────────────────────────────────────────
 WARP_ENABLED="false"
-FRONTED_IDS=()
 
 main() {
     # In patch mode reuse the domain/SNI/cover recorded by the previous install
@@ -1999,7 +2041,7 @@ main() {
     init_api
 
     install_inbounds
-    install_eternal_client
+    install_eternal_clients
     install_hosts
     configure_warp
 

@@ -72,7 +72,7 @@ bash x-ui-latest.sh -subdomain panel.example.com
 
 | Вход | Транспорт | Порт |
 |------|-----------|------|
-| VLESS | mKCP | случайный UDP |
+| VLESS | mKCP* | случайный UDP |
 | TUIC v5 | QUIC | случайный UDP |
 | WireGuard | UDP | случайный UDP |
 | AmneziaWG | UDP | случайный UDP |
@@ -80,24 +80,35 @@ bash x-ui-latest.sh -subdomain panel.example.com
 
 Порты генерируются случайно один раз и сохраняются в `/etc/x-ui/3x-ui-pro/install.env` — повторный запуск и `x-ui-patch.sh` их не меняют.
 
+\* mKCP собирается с **VLESS Encryption** (X25519): современные ядра Xray запрещают «голый» VLESS без TLS, поэтому ссылки mKCP требуют клиента с поддержкой VLESS Encryption (Xray 25.x+, свежий Happ).
+
 ---
 
 ## Вечная подписка
 
-После установки создаётся клиент `eternal`:
+После установки создаются три бессрочных клиента:
 
-- срок действия: **никогда** (`expiryTime = 0`)
-- лимит трафика: **безлимит** (`totalGB = 0`)
-- привязан ко **всем** входам (одна подписка — все протоколы)
-- в ссылки REALITY автоматически попадает `flow=xtls-rprx-vision`
+- **`eternal`** — все протоколы, кроме WireGuard/AmneziaWG (у панели одна общая
+  WireGuard-пара ключей на клиента, поэтому туннели вынесены отдельно):
+  срок действия **никогда**, лимит трафика **безлимит**;
+- **`eternal-wg`** — только WireGuard (`wireguard://`);
+- **`eternal-awg`** — только AmneziaWG (`vpn://` для AmneziaVPN).
 
-Скрипт выводит три URL подписки:
+В ссылки REALITY автоматически попадает `flow=xtls-rprx-vision`.
+
+Скрипт выводит URL подписок:
 
 ```
 https://<домен>/<путь>/eternal        # raw (все клиенты)
 https://<домен>/<путь-json>/<subid>   # JSON — рекомендовано для Happ (с роутингом)
 https://<домен>/<путь-clash>/<subid>  # Clash / Mihomo
+https://<домен>/<путь>/<subid-wg>     # WireGuard
+https://<домен>/<путь>/<subid-awg>    # AmneziaWG (vpn://)
 ```
+
+> JSON-подписка панели не содержит TUIC, AmneziaWG и MTProto — это ограничение
+> самой панели. Для Happ берите JSON-подписку, для AmneziaVPN — raw-подписку
+> `eternal-awg`, для TUIC/MTProto — raw или Clash.
 
 ---
 

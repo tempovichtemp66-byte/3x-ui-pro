@@ -67,11 +67,19 @@ installing the panel it:
 3. calls the panel REST API (`Authorization: Bearer <token>`,
    `https://127.0.0.1:$panel_port/$panel_path/panel/api/...`):
    * `POST /inbounds/add` — all inbounds (JSON bodies built from here-docs);
-   * `POST /clients/add` — the eternal client (`expiryTime=0`, `totalGB=0`,
-     `flow=xtls-rprx-vision`) attached to every inbound; the panel mints all
-     per-protocol credentials itself;
+   * `GET /server/getNewVlessEnc` — X25519 VLESS-encryption pair for the mKCP
+     inbound (xray-core v26 forbids plain VLESS without transport TLS);
+   * `POST /clients/add` — three eternal clients (`expiryTime=0`, `totalGB=0`,
+     `flow=xtls-rprx-vision`): `eternal` (all inbounds except the tunnels),
+     `eternal-wg` (WireGuard) and `eternal-awg` (AmneziaWG) — the panel keeps a
+     single shared WireGuard keypair per client, so one client cannot span both
+     tunnels without its subscription advertising the wrong keys;
    * `POST /hosts/add` — host groups pinning the public endpoint
-     (`<domain>:443` for TLS/REALITY/MTProto inbounds, own ports for UDP ones);
+     (`<domain>:443` for TLS/REALITY/MTProto inbounds, own ports for UDP ones)
+     with per-transport ALPN (`http/1.1` for ws/httpupgrade, `h2` for gRPC,
+     `h2+http/1.1` for xhttp). The REALITY group intentionally has no SNI: a
+     host SNI makes the panel inject `realitySettings.serverNames` into JSON
+     client configs, which xray-core v26 clients reject (`serverName` only);
    * `POST /xray/warp/reg` + `POST /xray/update` — WARP registration and the
      outbound/routing merge in the Xray template;
 4. `x-ui restart` at the end.
@@ -92,7 +100,7 @@ subscription URLs and client credentials survive re-runs.
 | 3x-grpc | vless | random loopback | grpc, TLS by nginx |
 | 3x-httpupgrade | vless | random loopback | httpupgrade, TLS by nginx |
 | 3x-xhttp | vless | random loopback | xhttp packet-up, TLS by nginx |
-| 3x-kcp | vless | random UDP | kcp |
+| 3x-kcp | vless | random UDP | kcp + VLESS Encryption (X25519) |
 | 3x-trojan-ws / 3x-trojan-grpc | trojan | random loopback | ws / grpc |
 | 3x-vmess-ws / 3x-vmess-grpc | vmess | random loopback | ws / grpc |
 | 3x-ss | shadowsocks | random TCP+UDP | 2022-blake3-aes-256-gcm |
@@ -101,6 +109,29 @@ subscription URLs and client credentials survive re-runs.
 | 3x-mtproto | mtproto | random loopback | mtg-multi, FakeTLS SNI via nginx |
 | 3x-wireguard | wireguard | random UDP | Xray wireguard |
 | 3x-awg | amneziawg | random UDP | in-panel AmneziaWG |
+
+## Panel / xray-core quirks worked around
+
+Verified against 3x-ui v3 + xray-core 26.9.9 on a live server:
+
+* `/usr/bin/x-ui` is a shell wrapper with no `setting` subcommand — the installer
+  calls `/usr/local/x-ui/x-ui` directly to mint the API token.
+* VLESS inbounds must carry `"encryption": "none"` in their settings, otherwise
+  the panel emits `"encryption": ""` into JSON subscription outbounds and xray
+  clients refuse to start (`please add/set "encryption":"none"`).
+* A host-level SNI on a REALITY inbound makes the panel add
+  `realitySettings.serverNames` to JSON client configs; xray-core v26 rejects
+  that field on the client (`please use "serverName"`). Leave the host sni blank.
+* ALPN must match the transport, otherwise nginx translates the protocol
+  (h2→h1 for WebSocket) and the inbound drops the connection.
+* Plain VLESS (no TLS, no vlessenc) is only allowed for private addresses, so
+  mKCP carries VLESS Encryption generated via `GET /server/getNewVlessEnc`.
+* The panel's JSON subscription skips TUIC/AmneziaWG/MTProto and has no `proxy`
+  outbound for MTProto; their links are only in raw/Clash subscriptions.
+* `subJsonRoutingRules` (RoscomVPN) makes JSON subscription routing reference
+  custom geo tags (`geosite:category-ru`, `geoip:direct`, `geosite:torrent`, …).
+  Happ downloads them from the `Routing` header's Geoipurl/Geositeurl; other
+  clients need those files or the config fails to load.
 
 ## Running
 

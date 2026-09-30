@@ -72,7 +72,7 @@ Without `-subdomain` the domain is requested interactively.
 
 | Inbound | Transport | Port |
 |---------|-----------|------|
-| VLESS | mKCP | random UDP |
+| VLESS | mKCP* | random UDP |
 | TUIC v5 | QUIC | random UDP |
 | WireGuard | UDP | random UDP |
 | AmneziaWG | UDP | random UDP |
@@ -80,24 +80,35 @@ Without `-subdomain` the domain is requested interactively.
 
 Ports are generated once and stored in `/etc/x-ui/3x-ui-pro/install.env`; re-runs and `x-ui-patch.sh` keep them stable.
 
+\* mKCP ships with **VLESS Encryption** (X25519): modern Xray cores forbid plain VLESS without TLS, so mKCP links need a client with VLESS Encryption support (Xray 25.x+, recent Happ).
+
 ---
 
 ## Eternal subscription
 
-The installer creates an `eternal` client:
+Three never-expiring clients are created:
 
-- expiry: **never** (`expiryTime = 0`)
-- traffic: **unlimited** (`totalGB = 0`)
-- attached to **every** inbound (one subscription — all protocols)
-- REALITY links automatically carry `flow=xtls-rprx-vision`
+- **`eternal`** — every protocol except WireGuard/AmneziaWG (the panel keeps one
+  shared WireGuard keypair per client, so the tunnels are split off): no expiry,
+  no traffic limit;
+- **`eternal-wg`** — WireGuard only (`wireguard://`);
+- **`eternal-awg`** — AmneziaWG only (`vpn://` for AmneziaVPN).
 
-Three subscription URLs are printed:
+REALITY links automatically carry `flow=xtls-rprx-vision`.
+
+Subscription URLs printed by the installer:
 
 ```
 https://<domain>/<path>/eternal        # raw (any client)
 https://<domain>/<json-path>/<subid>   # JSON — recommended for Happ (with routing)
 https://<domain>/<clash-path>/<subid>  # Clash / Mihomo
+https://<domain>/<path>/<subid-wg>     # WireGuard
+https://<domain>/<path>/<subid-awg>    # AmneziaWG (vpn://)
 ```
+
+> The panel's JSON subscription does not include TUIC, AmneziaWG or MTProto —
+> a panel limitation. Use the JSON one for Happ, the raw `eternal-awg` one for
+> AmneziaVPN, and raw/Clash for TUIC/MTProto.
 
 ---
 
