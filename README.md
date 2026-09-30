@@ -34,15 +34,14 @@
 ## Установка
 
 ```bash
-wget -qO x-ui-latest.sh https://raw.githubusercontent.com/YOUR_GITHUB_USER/YOUR_REPO/main/x-ui-latest.sh
+wget -qO x-ui-latest.sh https://raw.githubusercontent.com/tempovichtemp66-byte/3x-ui-pro/main/x-ui-latest.sh
 bash x-ui-latest.sh -subdomain panel.example.com
 ```
 
 Без `-subdomain` домен спросят интерактивно.
 
-> **Перед заливкой на GitHub** замените в скриптах и документации плейсхолдеры
-> `YOUR_GITHUB_USER/YOUR_REPO` на свой логин и имя репозитория. Альтернатива —
-> не менять файлы, а задать окружение при запуске:
+> Ассеты (заглушка, диагностика) скачиваются из этого репозитория. Если вы форкнули
+> и переименовали его — поменяйте `tempovichtemp66-byte/3x-ui-pro` в файлах или задайте окружение:
 > `XUI_PRO_RAW=https://raw.githubusercontent.com/<вы>/<репо>/main bash x-ui-latest.sh ...`.
 > Сама панель 3x-ui при этом всё равно скачивается из оригинального репозитория MHSanaei/3x-ui.
 
@@ -168,7 +167,7 @@ YouTube/Telegram/GitHub и остальной мир — через прокси
 `/etc/x-ui/3x-ui-pro/install.env` и БД):
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/YOUR_GITHUB_USER/YOUR_REPO/main/x-ui-patch.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/tempovichtemp66-byte/3x-ui-pro/main/x-ui-patch.sh)
 ```
 
 Патч работает для установок, созданных этой версией скрипта. Для перехода со старой
@@ -184,7 +183,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/YOUR_GITHUB_USER/YOUR_REPO/m
 - **Админка** — на случайном пути `/adg-<random>/` (логин и пароль выводит скрипт)
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/YOUR_GITHUB_USER/YOUR_REPO/main/x-ui-adguard.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/tempovichtemp66-byte/3x-ui-pro/main/x-ui-adguard.sh)
 ```
 
 Повторный запуск безопасен. После установщика или патча запустите скрипт ещё раз — они перезаписывают конфиг nginx.
@@ -192,7 +191,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/YOUR_GITHUB_USER/YOUR_REPO/m
 Удаление:
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/YOUR_GITHUB_USER/YOUR_REPO/main/x-ui-adguard.sh) -uninstall y
+bash <(curl -fsSL https://raw.githubusercontent.com/tempovichtemp66-byte/3x-ui-pro/main/x-ui-adguard.sh) -uninstall y
 ```
 
 ---
@@ -208,7 +207,7 @@ bash x-ui-latest.sh -uninstall y
 ## Бэкап и восстановление
 
 ```bash
-wget -qO /usr/local/bin/x-ui-backup https://raw.githubusercontent.com/YOUR_GITHUB_USER/YOUR_REPO/main/assets/backup/x-ui-backup.sh
+wget -qO /usr/local/bin/x-ui-backup https://raw.githubusercontent.com/tempovichtemp66-byte/3x-ui-pro/main/assets/backup/x-ui-backup.sh
 chmod +x /usr/local/bin/x-ui-backup
 
 x-ui-backup backup                  # создать

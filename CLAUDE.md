@@ -23,7 +23,7 @@ assets/
 ```
 
 Scripts download assets at install time from this repo's raw GitHub URL
-(`https://raw.githubusercontent.com/YOUR_GITHUB_USER/YOUR_REPO/main/...`, overridable with
+(`https://raw.githubusercontent.com/tempovichtemp66-byte/3x-ui-pro/main/...`, overridable with
 `XUI_PRO_RAW`) — changes take effect on servers only after push to `main`.
 
 ## Architecture
@@ -105,10 +105,10 @@ subscription URLs and client credentials survive re-runs.
 ## Running
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/YOUR_GITHUB_USER/YOUR_REPO/main/x-ui-latest.sh) \
+bash <(curl -fsSL https://raw.githubusercontent.com/tempovichtemp66-byte/3x-ui-pro/main/x-ui-latest.sh) \
   -subdomain panel.example.com [-sni bing|google|duckduckgo] [-cover endless|random]
 
-bash <(curl -fsSL https://raw.githubusercontent.com/YOUR_GITHUB_USER/YOUR_REPO/main/x-ui-patch.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/tempovichtemp66-byte/3x-ui-pro/main/x-ui-patch.sh)
 ```
 
 AdGuard Home (standalone, re-run safe, `-uninstall y` to remove). AGH binds
@@ -118,5 +118,5 @@ panel vhost. Installer/patch regenerate the vhost and drop that include — re-r
 this script after them:
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/YOUR_GITHUB_USER/YOUR_REPO/main/x-ui-adguard.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/tempovichtemp66-byte/3x-ui-pro/main/x-ui-adguard.sh)
 ```

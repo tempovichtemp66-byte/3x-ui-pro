@@ -34,15 +34,14 @@ Automated installer for the [3x-ui](https://github.com/MHSanaei/3x-ui) v3+ panel
 ## Installation
 
 ```bash
-wget -qO x-ui-latest.sh https://raw.githubusercontent.com/YOUR_GITHUB_USER/YOUR_REPO/main/x-ui-latest.sh
+wget -qO x-ui-latest.sh https://raw.githubusercontent.com/tempovichtemp66-byte/3x-ui-pro/main/x-ui-latest.sh
 bash x-ui-latest.sh -subdomain panel.example.com
 ```
 
 Without `-subdomain` the domain is requested interactively.
 
-> **Before pushing to GitHub**, replace the `YOUR_GITHUB_USER/YOUR_REPO`
-> placeholders in the scripts and docs with your login and repository name.
-> Alternatively, leave the files untouched and set the environment when running:
+> Assets (cover site, diagnostics) are downloaded from this repository. If you forked
+> and renamed it, update `tempovichtemp66-byte/3x-ui-pro` in the files or set the environment:
 > `XUI_PRO_RAW=https://raw.githubusercontent.com/<you>/<repo>/main bash x-ui-latest.sh ...`.
 > The 3x-ui panel itself is still downloaded from the upstream MHSanaei/3x-ui repository.
 
@@ -168,7 +167,7 @@ the domain, ports, subscription paths or client UUID/passwords (they are read fr
 `/etc/x-ui/3x-ui-pro/install.env` and the panel DB):
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/YOUR_GITHUB_USER/YOUR_REPO/main/x-ui-patch.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/tempovichtemp66-byte/3x-ui-pro/main/x-ui-patch.sh)
 ```
 
 The patch supports installs created by this version. Moving from the old
@@ -184,7 +183,7 @@ Installs [AdGuard Home](https://github.com/AdguardTeam/AdGuardHome) on the panel
 - **Admin UI** — at a random `/adg-<random>/` path (login and password are printed by the script)
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/YOUR_GITHUB_USER/YOUR_REPO/main/x-ui-adguard.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/tempovichtemp66-byte/3x-ui-pro/main/x-ui-adguard.sh)
 ```
 
 Re-running is safe. After the installer or the patch, run this script again — they rewrite the nginx config.
@@ -192,7 +191,7 @@ Re-running is safe. After the installer or the patch, run this script again — 
 Uninstall:
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/YOUR_GITHUB_USER/YOUR_REPO/main/x-ui-adguard.sh) -uninstall y
+bash <(curl -fsSL https://raw.githubusercontent.com/tempovichtemp66-byte/3x-ui-pro/main/x-ui-adguard.sh) -uninstall y
 ```
 
 ---
@@ -208,7 +207,7 @@ bash x-ui-latest.sh -uninstall y
 ## Backup and restore
 
 ```bash
-wget -qO /usr/local/bin/x-ui-backup https://raw.githubusercontent.com/YOUR_GITHUB_USER/YOUR_REPO/main/assets/backup/x-ui-backup.sh
+wget -qO /usr/local/bin/x-ui-backup https://raw.githubusercontent.com/tempovichtemp66-byte/3x-ui-pro/main/assets/backup/x-ui-backup.sh
 chmod +x /usr/local/bin/x-ui-backup
 
 x-ui-backup backup                  # create

@@ -62,7 +62,7 @@ check_cpu
 
 # ─── Constants ───────────────────────────────────────────────────────────────
 XUIDB="/etc/x-ui/x-ui.db"
-GITHUB_RAW="${XUI_PRO_RAW:-https://raw.githubusercontent.com/YOUR_GITHUB_USER/YOUR_REPO/main}"
+GITHUB_RAW="${XUI_PRO_RAW:-https://raw.githubusercontent.com/tempovichtemp66-byte/3x-ui-pro/main}"
 FAKE_SITE_COUNT=50
 STATE_DIR="/etc/x-ui/3x-ui-pro"
 STATE_FILE="${STATE_DIR}/install.env"

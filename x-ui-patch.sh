@@ -11,7 +11,7 @@
 #
 [[ $EUID -ne 0 ]] && { echo "Run as root: sudo bash $0"; exit 1; }
 
-RAW="${XUI_PRO_RAW:-https://raw.githubusercontent.com/YOUR_GITHUB_USER/YOUR_REPO/main}"
+RAW="${XUI_PRO_RAW:-https://raw.githubusercontent.com/tempovichtemp66-byte/3x-ui-pro/main}"
 
 echo "Applying current 3x-ui-pro features to the existing installation..."
 exec bash <(curl -fsSL "${RAW}/x-ui-latest.sh") -patch y "$@"
