@@ -200,7 +200,9 @@ uninstall_xui() {
 
 if [[ ${UNINSTALL} == *"y"* ]]; then
     uninstall_xui
-    clear && msg_ok "Completely Uninstalled!" && exit 0
+    clear 2>/dev/null || true
+    msg_ok "Completely Uninstalled!"
+    exit 0
 fi
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -288,7 +290,8 @@ IP4=$(ip route get 8.8.8.8 2>&1 | grep -Po -- 'src \K\S*')
 validate_domains() {
     while true; do
         [[ -n "$domain" ]] && break
-        echo -en "Enter available domain (sub.domain.tld): " && read -r domain
+        echo -en "Enter available domain (sub.domain.tld): " && read -r domain \
+            || { msg_err "No domain provided (use -subdomain panel.example.com)."; exit 1; }
     done
     domain=$(echo "$domain" | tr -d '[:space:]')
     SubDomain=$(echo "$domain"   | sed 's/^[^ ]* \|\..*//g')
