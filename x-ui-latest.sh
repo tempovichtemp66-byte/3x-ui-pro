@@ -910,13 +910,20 @@ init_api() {
     wait_for_panel || { msg_err "Panel did not come up on port ${panel_port}."; exit 1; }
 
     API_TOKEN=""
-    local i
+    local i out
     for i in 1 2 3 4 5; do
-        API_TOKEN=$(x-ui setting -getApiToken true 2>/dev/null | sed -n 's/^apiToken: *//p' | tail -n1)
+        # NOTE: /usr/bin/x-ui is the panel's shell wrapper and does not forward
+        # the `setting` subcommand — call the real binary directly.
+        out=$(/usr/local/x-ui/x-ui setting -getApiToken true 2>&1)
+        API_TOKEN=$(echo "$out" | sed -n 's/^apiToken: *//p' | tail -n1)
         [[ -n "$API_TOKEN" ]] && break
         sleep 2
     done
-    [[ -n "$API_TOKEN" ]] || { msg_err "Failed to mint a panel API token."; exit 1; }
+    if [[ -z "$API_TOKEN" ]]; then
+        msg_err "Failed to mint a panel API token. CLI output:"
+        echo "$out"
+        exit 1
+    fi
 
     if ! api GET /server/status | api_ok; then
         msg_err "Panel API token rejected — check the panel version."
