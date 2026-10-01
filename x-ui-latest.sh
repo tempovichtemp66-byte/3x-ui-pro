@@ -74,7 +74,8 @@ domain=""
 sni="bing"                 # bing | google | duckduckgo | any domain name
 cover="endless"            # endless | random
 users_arg=""               # -users: how many never-expiring users (default 10)
-XRAY_CORE=""               # pin the Xray core (e.g. v26.6.27); empty = keep the bundled one
+XRAY_CORE="v26.6.27"        # pinned core: newer cores break REALITY in Mihomo/sing-box
+                            # (verified 2026-10-01); pass -xray_core none to keep the bundled one
 UNINSTALL="x"
 INSTALL="y"
 AUTODOMAIN="n"
@@ -1087,7 +1088,7 @@ xray_bin_path() {
 # REALITY for non-Xray clients (Mihomo/sing-box), so the installer can install
 # a version verified against every client via the panel API.
 ensure_xray_core() {
-    [[ -n "$XRAY_CORE" ]] || return 0
+    [[ -n "$XRAY_CORE" && "$XRAY_CORE" != "none" ]] || return 0
     local want="${XRAY_CORE#v}" cur i
     cur=$("$(xray_bin_path)" version 2>/dev/null | awk 'NR==1 {print $2}')
     if [[ "$cur" == "$want" ]]; then

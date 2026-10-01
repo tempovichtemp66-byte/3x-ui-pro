@@ -169,7 +169,7 @@ subscription** to get the full profile.
 | `-users N` | How many eternal users to create (default 10, range 1–100) |
 | `-sni bing\|google\|duckduckgo\|<domain>` | Which site REALITY is masked as (default `bing`; validated for TLS 1.3 + HTTP/2, falls back to another site if unreachable) |
 | `-cover endless\|random` | Cover site: endless loading or a random site (default `endless`) |
-| `-xray_core <version>` | Pin the Xray core, e.g. `v26.6.27` (Mihomo/sing-box compatibility); default — the core bundled with the panel |
+| `-xray_core <version\|none>` | Xray core. Default `v26.6.27`: newer cores (26.7+) break REALITY for Mihomo/sing-box (verified on a live server, 2026-10-01). `-xray_core none` keeps the panel's bundled core |
 | `-install n` | Skip system package installation (default `y`) |
 | `-auto_domain y` | Verify the domain already resolves to this IP |
 | `-version <version>` | Install a specific 3x-ui version, default — latest |

@@ -140,6 +140,22 @@ Verified against 3x-ui v3 + xray-core 26.9.9 on a live server:
   HeaderProtectionKey, timings, RandomTrailers/DisableCookies) and generates the
   server keypair — i.e. the newest AmneziaWG 3.1 set, mirrored into the `vpn://`
   client config. Clients need AmneziaWG 3.1 support (recent AmneziaVPN).
+* Cores newer than 26.6.x break REALITY for Mihomo/sing-box clients. Verified
+  on a live server 2026-10-01: core 26.9.9 → mihomo `REALITY authentication
+  failed`; core 26.6.27 → works (exit via WARP). The installer therefore pins
+  `-xray_core v26.6.27` by default through `POST /server/installXray/v26.6.27`
+  (`-xray_core none` keeps the bundled core). Finding adopted from
+  github.com/itsnotkubrick/3X-UI_KIT's protocol×client matrix.
+* `/etc/nginx/nginx.conf` may already load `ngx_stream_module` (Ubuntu ships it
+  via `modules-enabled/50-mod-stream.conf`, a symlink). The installer detects
+  that and removes its own `load_module` line instead of adding a duplicate —
+  nginx refuses to start on a duplicated module.
+* If Let's Encrypt cannot issue (rate limit, DNS/HTTP-01 problem) the installer
+  falls back to a self-signed certificate in `/root/cert/<domain>/` and writes
+  the certificate pin into hosts (`pcs` in raw links, `pinSHA256` in hysteria).
+  Note the panel puts pins under `tlsSettings.settings.pinnedPeerCertSha256`
+  (base64 array) — real clients consume `pcs` from share links; raw xray-core
+  configs expect a top-level comma-separated hex `pinnedPeerCertSha256`.
 * The panel's JSON subscription skips TUIC/AmneziaWG/MTProto and has no `proxy`
   outbound for MTProto; their links are only in raw/Clash subscriptions.
 * `subJsonRoutingRules` (RoscomVPN) makes JSON subscription routing reference
