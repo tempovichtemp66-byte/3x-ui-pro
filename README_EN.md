@@ -4,6 +4,11 @@
 
 Automated installer for the [3x-ui](https://github.com/MHSanaei/3x-ui) v3+ panel: one domain, every protocol on port 443, an eternal subscription user, endless-loading cover site, WARP egress and a ready RoscomVPN profile for Happ.
 
+> [!WARNING]
+> **This project is created for educational purposes.** Make sure your actions comply with the laws of your country.
+> Use it only on servers you own. The authors are not liable for its use or any damage caused.
+> Full text — [DISCLAIMER.md](DISCLAIMER.md).
+
 - Debian 12/13, Ubuntu 24.04/26.04
 - **Single domain** (the second REALITY domain is gone)
 - REALITY is masked as **bing / google / duckduckgo** (SNI + fallback to the real site)

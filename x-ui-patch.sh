@@ -9,6 +9,10 @@
 # The heavy lifting lives in x-ui-latest.sh (-patch y); this file is only a
 # bootstrapper so `bash <(curl .../x-ui-patch.sh)` keeps working.
 #
+# WARNING: educational purposes only. Use only on servers you own and comply
+# with the laws of your country. Provided "as is", without warranty — see
+# DISCLAIMER.md in the repository.
+#
 [[ $EUID -ne 0 ]] && { echo "Run as root: sudo bash $0"; exit 1; }
 
 RAW="${XUI_PRO_RAW:-https://raw.githubusercontent.com/tempovichtemp66-byte/3x-ui-pro/main}"

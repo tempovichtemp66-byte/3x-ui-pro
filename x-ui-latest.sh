@@ -11,6 +11,10 @@
 #   * RoscomVPN routing profile baked into the JSON subscription for Happ
 #   * all client egress through Cloudflare WARP (registered via the panel API)
 #
+# WARNING: educational purposes only. Use only on servers you own and comply
+# with the laws of your country. Provided "as is", without warranty — see
+# DISCLAIMER.md in the repository.
+#
 [[ $EUID -ne 0 ]] && { echo "Run as root: sudo bash $0"; exit 1; }
 
 # ─── Output helpers ──────────────────────────────────────────────────────────
@@ -21,6 +25,8 @@ msg_inf() { echo -e "\e[1;34m$1\e[0m"; }
 echo; msg_inf '           ___    _   _   _  '
 msg_inf      ' \/ __ | |  | __ |_) |_) / \ '
 msg_inf      ' /\    |_| _|_   |   | \ \_/ '; echo
+msg_inf "  Только для образовательных целей, на своих серверах / Educational use only, on your own servers."
+echo
 
 # ─── Pre-flight checks ───────────────────────────────────────────────────────
 check_os() {
