@@ -69,11 +69,14 @@ installing the panel it:
    * `POST /inbounds/add` — all inbounds (JSON bodies built from here-docs);
    * `GET /server/getNewVlessEnc` — X25519 VLESS-encryption pair for the mKCP
      inbound (xray-core v26 forbids plain VLESS without transport TLS);
-   * `POST /clients/add` — three eternal clients (`expiryTime=0`, `totalGB=0`,
-     `flow=xtls-rprx-vision`): `eternal` (all inbounds except the tunnels),
-     `eternal-wg` (WireGuard) and `eternal-awg` (AmneziaWG) — the panel keeps a
-     single shared WireGuard keypair per client, so one client cannot span both
-     tunnels without its subscription advertising the wrong keys;
+   * `POST /clients/add` — `-users N` eternal users (default 10,
+     `expiryTime=0`, `totalGB=0`, `flow=xtls-rprx-vision`). Each user gets a
+     client for the xray-handled inbounds plus one client per tunnel protocol
+     (`eternal-N`, `eternal-N-wg`, `eternal-N-awg`): the panel keeps a single
+     shared WireGuard keypair per client, so one client cannot span WireGuard
+     and AmneziaWG without its subscription advertising the wrong keys;
+   * `POST /server/installXray/v<ver>` — optional core pin (`-xray_core`), see
+     the quirks section for why a pinned core can be required;
    * `POST /hosts/add` — host groups pinning the public endpoint
      (`<domain>:443` for TLS/REALITY/MTProto inbounds, own ports for UDP ones)
      with per-transport ALPN (`http/1.1` for ws/httpupgrade, `h2` for gRPC,
@@ -84,12 +87,18 @@ installing the panel it:
      outbound/routing merge in the Xray template;
 4. `x-ui restart` at the end.
 
+Before any of that it validates the masking site (`sni_ok`: TLS 1.3 + HTTP/2,
+falling back to another site) and checks whether Telegram is reachable
+(`telegram_reachable`): MTProto is skipped when it is not, so the fake-SNI
+route on :443 is not wasted.
+
 This keeps clients/client_inbounds/client_traffics consistent with the v3 data
 model without duplicating its schema.
 
-State (domain, ports, paths, keys, eternal client email/subId) lives in
-`/etc/x-ui/3x-ui-pro/install.env` (0600) and is reused by `-patch y`, so
-subscription URLs and client credentials survive re-runs.
+State (domain, ports, paths, keys, `ETERNAL_USERS`, `CLIENT_BASE`, `SUBID_BASE`)
+lives in `/etc/x-ui/3x-ui-pro/install.env` (0600), and a human-readable copy of
+the panel credentials plus every subscription URL is written to
+`/root/3x-ui-pro-credentials.txt` (0600) on every run.
 
 ## Inbounds created
 

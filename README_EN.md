@@ -88,28 +88,29 @@ Ports are generated once and stored in `/etc/x-ui/3x-ui-pro/install.env`; re-run
 
 ## Eternal subscription
 
-Three never-expiring clients are created:
+By default **10 never-expiring users** are created (`-users N`, 1–100):
 
-- **`eternal`** — every protocol except WireGuard/AmneziaWG (the panel keeps one
-  shared WireGuard keypair per client, so the tunnels are split off): no expiry,
-  no traffic limit;
-- **`eternal-wg`** — WireGuard only (`wireguard://`);
-- **`eternal-awg`** — AmneziaWG only (`vpn://` for AmneziaVPN).
+- **`eternal-1 … eternal-10`** — every protocol except WireGuard/AmneziaWG (the
+  panel keeps one shared WireGuard keypair per client, so the tunnels are split
+  off): no expiry, no traffic limit;
+- **`eternal-N-wg`** — WireGuard only (`wireguard://`);
+- **`eternal-N-awg`** — AmneziaWG only (`vpn://` for AmneziaVPN).
 
 REALITY links automatically carry `flow=xtls-rprx-vision`.
 
-Subscription URLs printed by the installer:
+The installer prints each user's JSON link, and the full list (panel + every
+subscription format) is saved to **`/root/3x-ui-pro-credentials.txt`** (0600):
 
 ```
-https://<domain>/<path>/eternal        # raw (any client)
-https://<domain>/<json-path>/<subid>   # JSON — recommended for Happ (with routing)
-https://<domain>/<clash-path>/<subid>  # Clash / Mihomo
-https://<domain>/<path>/<subid-wg>     # WireGuard
-https://<domain>/<path>/<subid-awg>    # AmneziaWG (vpn://)
+https://<domain>/<path>/eternal-1        # raw (any client)
+https://<domain>/<json-path>/eternal-1   # JSON — recommended for Happ (with routing)
+https://<domain>/<clash-path>/eternal-1  # Clash / Mihomo
+https://<domain>/<path>/eternal-1-wg     # WireGuard
+https://<domain>/<path>/eternal-1-awg    # AmneziaWG (vpn://)
 ```
 
 > The panel's JSON subscription does not include TUIC, AmneziaWG or MTProto —
-> a panel limitation. Use the JSON one for Happ, the raw `eternal-awg` one for
+> a panel limitation. Use the JSON one for Happ, the raw `eternal-N-awg` one for
 > AmneziaVPN, and raw/Clash for TUIC/MTProto.
 
 ---
@@ -119,6 +120,8 @@ https://<domain>/<path>/<subid-awg>    # AmneziaWG (vpn://)
 - REALITY clients connect to `<your domain>:443` with SNI `www.bing.com` (or google/duckduckgo) and land on Xray.
 - A stranger opening `https://<your domain>` gets an **endless loading page** (a JS progress bar that never reaches 100%).
 - Any other SNI is forwarded to the REALITY target, so a scanner sees the real TLS certificate of the chosen site.
+- The masking site is checked for TLS 1.3 + HTTP/2 before wiring; if it is unavailable the installer picks another one.
+- MTProto is skipped automatically when the host cannot reach Telegram (the proxy would be useless there).
 
 Pick the masking SNI:
 
@@ -163,8 +166,10 @@ subscription** to get the full profile.
 | Option | Description |
 |--------|-------------|
 | `-subdomain <domain>` | Panel, subscription and cover-site domain |
-| `-sni bing\|google\|duckduckgo` | Which site REALITY is masked as (default `bing`) |
+| `-users N` | How many eternal users to create (default 10, range 1–100) |
+| `-sni bing\|google\|duckduckgo\|<domain>` | Which site REALITY is masked as (default `bing`; validated for TLS 1.3 + HTTP/2, falls back to another site if unreachable) |
 | `-cover endless\|random` | Cover site: endless loading or a random site (default `endless`) |
+| `-xray_core <version>` | Pin the Xray core, e.g. `v26.6.27` (Mihomo/sing-box compatibility); default — the core bundled with the panel |
 | `-install n` | Skip system package installation (default `y`) |
 | `-auto_domain y` | Verify the domain already resolves to this IP |
 | `-version <version>` | Install a specific 3x-ui version, default — latest |

@@ -71,8 +71,10 @@ METADATA_SNI="www.cloudflare.com"   # MTProto FakeTLS fronting SNI
 
 # ─── Default argument values ─────────────────────────────────────────────────
 domain=""
-sni="bing"                 # bing | google | duckduckgo
+sni="bing"                 # bing | google | duckduckgo | any domain name
 cover="endless"            # endless | random
+users_arg=""               # -users: how many never-expiring users (default 10)
+XRAY_CORE=""               # pin the Xray core (e.g. v26.6.27); empty = keep the bundled one
 UNINSTALL="x"
 INSTALL="y"
 AUTODOMAIN="n"
@@ -167,6 +169,8 @@ while [ "$#" -gt 0 ]; do
         -subdomain)        domain="$2";     shift 2 ;;
         -sni)              sni="$2";        shift 2 ;;
         -cover)            cover="$2";      shift 2 ;;
+        -users)            users_arg="$2";  shift 2 ;;
+        -xray_core)        XRAY_CORE="$2";  shift 2 ;;
         -ONLY_CF_IP_ALLOW) CFALLOW="$2";    shift 2 ;;
         -version)          PANEL_VERSION="$2"; shift 2 ;;
         -uninstall)        UNINSTALL="$2";  shift 2 ;;
@@ -258,12 +262,41 @@ MTR_PORT='${mtr_backend_port}'
 DIAG_PATH='${diag_path}'
 DIAG_TOKEN='${diag_token}'
 WG_KEY='${wg_key}'
-CLIENT_EMAIL='${client_email}'
-CLIENT_SUBID='${client_subid}'
-CLIENT_SUBID_WG='${client_subid_wg}'
-CLIENT_SUBID_AWG='${client_subid_awg}'
+ETERNAL_USERS='${eternal_users}'
+CLIENT_BASE='${client_base}'
+SUBID_BASE='${subid_base}'
+SNI_DOMAIN='${sni_domain}'
 EOF
     chmod 600 "$STATE_FILE"
+}
+
+# Human-readable copy of everything the operator needs (root-only, 0600).
+save_credentials() {
+    local file="/root/3x-ui-pro-credentials.txt" u
+    {
+        echo "3x-ui-pro — доступы и подписки ($(date -u '+%Y-%m-%d %H:%M:%S UTC'))"
+        echo
+        echo "Панель:   https://${domain}/${panel_path}/"
+        echo "Логин:    ${config_username}"
+        echo "Пароль:   ${config_password}"
+        echo "Сброс:    x-ui setting -username NEW -password NEW && x-ui restart"
+        echo
+        echo "Вечных пользователей: ${eternal_users} (без срока, безлимит)"
+        echo "subId = ${subid_base}-N   (raw/clash: те же subId, другие пути)"
+        echo
+        for ((u = 1; u <= eternal_users; u++)); do
+            printf '  #%-2s JSON (Happ): %s\n' "$u" "https://${domain}/${json_path}/${subid_base}-${u}"
+            printf '       raw       : %s\n' "https://${domain}/${sub_path}/${subid_base}-${u}"
+        done
+        echo
+        echo "Clash:         https://${domain}/${clash_path}/<subId>"
+        echo "WireGuard:     https://${domain}/${sub_path}/${subid_base}-N-wg"
+        echo "AmneziaWG:     https://${domain}/${sub_path}/${subid_base}-N-awg  (vpn:// для AmneziaVPN)"
+        echo
+        echo "SNI маскировки: ${sni_domain}   Заглушка: ${cover}"
+        echo "Диагностика:    https://${domain}/${panel_path}/diag (нужен вход в панель)"
+    } > "$file"
+    chmod 600 "$file"
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -301,13 +334,60 @@ validate_domains() {
         bing)        sni_domain="www.bing.com" ;;
         google)      sni_domain="www.google.com" ;;
         duckduckgo)  sni_domain="duckduckgo.com" ;;
-        *)           msg_err "Unsupported -sni '$sni' (use: bing, google, duckduckgo)"; exit 1 ;;
+        "")          sni_domain="www.bing.com" ;;
+        *)           sni_domain="$sni" ;;
     esac
+    if [[ ! "$sni_domain" =~ ^[A-Za-z0-9][A-Za-z0-9.-]*\.[A-Za-z]{2,}$ ]]; then
+        msg_err "Invalid -sni '$sni' (use bing | google | duckduckgo or a domain name)"
+        exit 1
+    fi
 
     case "$cover" in
         endless|random) ;;
         *) msg_err "Unsupported -cover '$cover' (use: endless, random)"; exit 1 ;;
     esac
+
+    if [[ -n "$users_arg" ]]; then
+        if [[ ! "$users_arg" =~ ^[0-9]+$ ]] || (( users_arg < 1 || users_arg > 100 )); then
+            msg_err "Unsupported -users '$users_arg' (expected 1..100)"
+            exit 1
+        fi
+    fi
+}
+
+# REALITY steals a real site's TLS handshake, so the masking site has to answer
+# with TLS 1.3 and HTTP/2. Check it before wiring it in (same test 3X-UI_KIT uses).
+sni_ok() {
+    echo | timeout 8 openssl s_client -connect "$1:443" -servername "$1" -tls1_3 -alpn h2 2>/dev/null \
+        | grep -q 'ALPN protocol: h2'
+}
+
+# mtg talks to Telegram directly; on hosts that block Telegram the proxy would
+# be dead weight on port 443, so skip it there.
+telegram_reachable() {
+    local ip
+    for ip in 149.154.167.51 149.154.175.50 91.108.56.130; do
+        timeout 5 bash -c "</dev/tcp/$ip/443" 2>/dev/null && return 0
+    done
+    return 1
+}
+
+validate_mask_sni() {
+    if sni_ok "$sni_domain"; then
+        return 0
+    fi
+    msg_inf "Masking site ${sni_domain} did not answer with TLS 1.3 + HTTP/2 — picking another..."
+    local cand
+    for cand in www.bing.com www.google.com duckduckgo.com; do
+        if sni_ok "$cand"; then
+            sni_domain="$cand"
+            sni="$cand"
+            msg_inf "Using ${sni_domain} for REALITY masking."
+            return 0
+        fi
+    done
+    msg_err "No usable masking site found (TLS 1.3 + HTTP/2 required). Pass a reachable -sni <domain>."
+    exit 1
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -392,18 +472,24 @@ configure_nginx() {
     fi
 
     # ── SNI router ───────────────────────────────────────────────────────────
+    # MTProto is routed here only when this host can actually reach Telegram.
+    local mt_map_line="" mt_upstream=""
+    if [[ "${MT_ON:-yes}" == yes ]]; then
+        mt_map_line="    ${METADATA_SNI}       mtproto;"
+        mt_upstream="upstream mtproto { server 127.0.0.1:${mtproto_port}; }"
+    fi
     cat > /etc/nginx/stream-enabled/stream.conf <<EOF
 map \$ssl_preread_server_name \$sni_name {
     hostnames;
     ${sni_domain}         xray;
     ${domain}             www;
-    ${METADATA_SNI}       mtproto;
+${mt_map_line}
     default               xray;
 }
 
 upstream xray    { server 127.0.0.1:${reality_port}; }
 upstream www     { server 127.0.0.1:7443; }
-upstream mtproto { server 127.0.0.1:${mtproto_port}; }
+${mt_upstream}
 
 server {
     proxy_protocol on;
@@ -935,6 +1021,38 @@ init_api() {
     fi
 }
 
+# Xray binary of the installed panel (install_panel renames armv5/6/7 builds).
+xray_bin_path() {
+    local b="/usr/local/x-ui/bin/xray-linux-$(_arch)"
+    [[ -f "$b" ]] || b="/usr/local/x-ui/bin/xray-linux-arm"
+    echo "$b"
+}
+
+# Optional core pin (-xray_core v26.6.27). Xray cores newer than 26.6.x broke
+# REALITY for non-Xray clients (Mihomo/sing-box), so the installer can install
+# a version verified against every client via the panel API.
+ensure_xray_core() {
+    [[ -n "$XRAY_CORE" ]] || return 0
+    local want="${XRAY_CORE#v}" cur i
+    cur=$("$(xray_bin_path)" version 2>/dev/null | awk 'NR==1 {print $2}')
+    if [[ "$cur" == "$want" ]]; then
+        msg_inf "Xray core v${cur} already installed."
+        return 0
+    fi
+    msg_inf "Installing Xray core v${want} (client compatibility)..."
+    api POST "/server/installXray/v${want}" -H 'Content-Type: application/json' -d '{}' >/dev/null 2>&1 || true
+    for i in $(seq 1 60); do
+        sleep 2
+        cur=$("$(xray_bin_path)" version 2>/dev/null | awk 'NR==1 {print $2}')
+        [[ "$cur" == "$want" ]] && break
+    done
+    if [[ "$cur" == "$want" ]]; then
+        msg_ok "Xray core v${want} installed."
+    else
+        msg_err "Failed to install Xray core v${want} (current: ${cur:-unknown})."
+    fi
+}
+
 # ─────────────────────────────────────────────────────────────────────────────
 # INBOUNDS
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1373,6 +1491,7 @@ EOF
     ALL_IDS+=("$id"); TUIC_ID="$id"
 
     # ── 14. MTProto (mtg-multi, fronted through nginx :443 by FakeTLS SNI) ───
+    if [[ "${MT_ON:-yes}" == yes ]]; then
     f=$(json_file mtproto.json)
     cat > "$f" <<EOF
 {
@@ -1392,6 +1511,9 @@ EOF
 EOF
     id=$(add_inbound "3x-mtproto" "$f"); [[ -n "$id" ]] || exit 1
     ALL_IDS+=("$id"); MTPROTO_ID="$id"
+    else
+        msg_inf "MTProto inbound skipped (Telegram unreachable from this host)."
+    fi
 
     # ── 15. WireGuard (own UDP port) ─────────────────────────────────────────
     f=$(json_file wireguard.json)
@@ -1464,28 +1586,31 @@ create_eternal_client() { # <email> <subid> <inbound-ids-csv> [flow]
 EOF
     resp=$(api POST /clients/add -H 'Content-Type: application/json' --data-binary "@${payload}")
     if echo "$resp" | api_ok; then
-        msg_ok "Eternal client '${email}' created."
+        msg_inf "Eternal client '${email}' created."
     else
         msg_err "Failed to create client '${email}': $(echo "$resp" | jq -r '.msg // "unknown error"')"
         exit 1
     fi
 }
 
-install_eternal_clients() {
-    # The panel keeps ONE shared WireGuard keypair + tunnel address per client,
-    # so a client attached to both WireGuard and AmneziaWG ends up advertising
-    # the other tunnel's keys in its subscription. Each tunnel protocol
-    # therefore gets its own eternal client.
-    local main_ids="" i
+install_eternal_users() {
+    # One client per user for the xray-handled inbounds, plus one client per
+    # user for each tunnel protocol: the panel keeps a single WireGuard keypair
+    # and tunnel address per client row, so sharing one identity across
+    # WireGuard and AmneziaWG would advertise the wrong keys for one of them.
+    local main_ids="" i u
     for i in "${ALL_IDS[@]}"; do
         [[ "$i" == "$WG_ID" || "$i" == "$AWG_ID" ]] && continue
         main_ids+="${i},"
     done
     main_ids="${main_ids%,}"
 
-    create_eternal_client "${client_email}"     "${client_subid}"     "${main_ids}" "xtls-rprx-vision"
-    create_eternal_client "${client_email}-wg"  "${client_subid_wg}"  "${WG_ID}"    ""
-    create_eternal_client "${client_email}-awg" "${client_subid_awg}" "${AWG_ID}"   ""
+    for ((u = 1; u <= eternal_users; u++)); do
+        create_eternal_client "${client_base}-${u}"     "${subid_base}-${u}"     "${main_ids}" "xtls-rprx-vision"
+        create_eternal_client "${client_base}-${u}-wg"  "${subid_base}-${u}-wg"  "${WG_ID}"    ""
+        create_eternal_client "${client_base}-${u}-awg" "${subid_base}-${u}-awg" "${AWG_ID}"   ""
+    done
+    msg_ok "${eternal_users} eternal user(s) created (no expiry, unlimited)."
 }
 
 delete_managed_hosts() {
@@ -1546,7 +1671,7 @@ install_hosts() {
     add_host_group "3x-ui-pro ss"       "$SS_ID"       "${domain}:${ss_port}" "none" "" ""
     add_host_group "3x-ui-pro wireguard" "$WG_ID"      "${domain}:${wg_port}" "none" "" ""
     add_host_group "3x-ui-pro awg"      "$AWG_ID"      "${domain}:${awg_port}" "none" "" ""
-    add_host_group "3x-ui-pro mtproto"  "$MTPROTO_ID"  "${domain}:443" "none" "" ""
+    [[ -n "$MTPROTO_ID" ]] && add_host_group "3x-ui-pro mtproto" "$MTPROTO_ID" "${domain}:443" "none" "" ""
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1819,16 +1944,20 @@ show_results() {
         echo -e "Username:  ${config_username}"
         echo -e "Password:  ${config_password}"
         msg_inf "────────────────────────────────────────────────────────────────────────────────"
-        msg_inf "Eternal clients (no expiry, unlimited traffic): ${client_email}, ${client_email}-wg, ${client_email}-awg"
-        msg_inf "Raw subscription:     https://${domain}/${sub_path}/${client_subid}"
-        msg_inf "JSON subscription:    https://${domain}/${json_path}/${client_subid}"
-        msg_inf "Clash subscription:   https://${domain}/${clash_path}/${client_subid}"
-        msg_inf "  (use the JSON subscription in Happ — RoscomVPN routing rides along)"
-        msg_inf "WireGuard (raw):         https://${domain}/${sub_path}/${client_subid_wg}"
-        msg_inf "AmneziaWG (raw/vpn://):  https://${domain}/${sub_path}/${client_subid_awg}"
+        msg_inf "Eternal users: ${eternal_users} × (no expiry, unlimited traffic each)"
+        msg_inf "Full list (panel + every subscription link): /root/3x-ui-pro-credentials.txt"
+        local u
+        for ((u = 1; u <= eternal_users; u++)); do
+            echo -e "  #${u}  https://${domain}/${json_path}/${subid_base}-${u}"
+        done
+        echo -e "  raw / Clash: same subId under /${sub_path}/ and /${clash_path}/"
+        echo -e "  WireGuard: .../${sub_path}/${subid_base}-N-wg    AmneziaWG: .../${sub_path}/${subid_base}-N-awg"
+        msg_inf "  (use a JSON link in Happ — RoscomVPN routing rides along)"
         msg_inf "────────────────────────────────────────────────────────────────────────────────"
         msg_inf "SNI masking: ${sni_domain}  |  cover site: ${cover}"
-        echo -e "443/tcp : reality, ws, grpc, httpupgrade, xhttp, trojan, vmess, mtproto"
+        local tcp_list="reality, ws, grpc, httpupgrade, xhttp, trojan, vmess"
+        [[ -n "$MTPROTO_ID" ]] && tcp_list="${tcp_list}, mtproto"
+        echo -e "443/tcp : ${tcp_list}"
         echo -e "443/udp : hysteria2"
         echo -e "kcp/udp : ${kcp_port}   tuic/udp: ${tuic_port}   wireguard/udp: ${wg_port}"
         echo -e "awg/udp : ${awg_port}   shadowsocks tcp+udp: ${ss_port}"
@@ -1895,10 +2024,8 @@ generate_state() {
 
     config_username=$(gen_random_string 10)
     config_password=$(gen_random_string 10)
-    client_email="eternal"
-    client_subid=$(gen_random_string 14)
-    client_subid_wg=$(gen_random_string 14)
-    client_subid_awg=$(gen_random_string 14)
+    client_base="eternal"
+    subid_base=$(gen_random_string 14)
 
     reality_fp=$(shuf -e chrome firefox safari edge 2>/dev/null | head -1)
     [[ -n "$reality_fp" ]] || reality_fp="firefox"
@@ -1971,10 +2098,9 @@ patch_state() {
     # The panel stores only a hash, so the old password can't be recovered —
     # mint a fresh one on every patch.
     config_password=$(gen_random_string 10)
-    client_email="${CLIENT_EMAIL:-eternal}"
-    client_subid="${CLIENT_SUBID:-$(gen_random_string 14)}"
-    client_subid_wg="${CLIENT_SUBID_WG:-$(gen_random_string 14)}"
-    client_subid_awg="${CLIENT_SUBID_AWG:-$(gen_random_string 14)}"
+    client_base="${CLIENT_BASE:-${CLIENT_EMAIL:-eternal}}"
+    subid_base="${SUBID_BASE:-${CLIENT_SUBID:-$(gen_random_string 14)}}"
+    eternal_users="${users_arg:-${ETERNAL_USERS:-10}}"
     wg_key="${WG_KEY:-$(gen_wg_key)}"
     ss_password="${SS_PASSWORD:-$(openssl rand -base64 32)}"
 }
@@ -1990,11 +2116,21 @@ main() {
     if [[ ${PATCH} == *"y"* ]]; then
         load_state
         domain="${domain:-$DOMAIN}"
-        sni="${SNI:-$sni}"
+        if [[ "$sni" == "bing" ]]; then sni="${SNI_DOMAIN:-${SNI:-bing}}"; fi
+        eternal_users="${users_arg:-${ETERNAL_USERS:-10}}"
         cover="${COVER:-$cover}"
     fi
 
     validate_domains
+    validate_mask_sni
+
+    # mtg talks to Telegram directly: skip the inbound when this host cannot
+    # reach Telegram (checked before nginx is generated, so 443 stays clean).
+    MT_ON=yes
+    telegram_reachable || MT_ON=no
+    if [[ "$MT_ON" == no ]]; then
+        msg_inf "MTProto skipped: Telegram servers are unreachable from this host."
+    fi
 
     if [[ ${PATCH} == *"y"* ]]; then
         if [[ ! -f "$XUIDB" ]]; then
@@ -2006,6 +2142,7 @@ main() {
         INSTALL=n install_packages >/dev/null 2>&1 || true
         get_ssl_certs
         init_api
+        ensure_xray_core
         delete_managed_inbounds
         delete_managed_hosts
     else
@@ -2014,6 +2151,7 @@ main() {
         get_server_ip
         get_ssl_certs
         install_panel
+        eternal_users="${users_arg:-10}"
         generate_state
         save_state
     fi
@@ -2022,9 +2160,10 @@ main() {
     configure_nginx
 
     init_api
+    ensure_xray_core
 
     install_inbounds
-    install_eternal_clients
+    install_eternal_users
     install_hosts
     configure_warp
 
@@ -2043,6 +2182,7 @@ main() {
     x-ui restart
 
     save_state
+    save_credentials
     show_results
 }
 
