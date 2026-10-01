@@ -96,9 +96,9 @@ This keeps clients/client_inbounds/client_traffics consistent with the v3 data
 model without duplicating its schema.
 
 State (domain, ports, paths, keys, `ETERNAL_USERS`, `CLIENT_BASE`, `SUBID_BASE`)
-lives in `/etc/x-ui/3x-ui-pro/install.env` (0600), and a human-readable copy of
+lives in `/etc/x-ui/3x-ui-pro/install.env` (0600), and a Markdown copy of
 the panel credentials plus every subscription URL is written to
-`/root/3x-ui-pro-credentials.txt` (0600) on every run.
+`/root/README_PANEL.md` (0600) on every run.
 
 ## Inbounds created
 

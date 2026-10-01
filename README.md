@@ -99,7 +99,7 @@ bash x-ui-latest.sh -subdomain panel.example.com
 В ссылки REALITY автоматически попадает `flow=xtls-rprx-vision`.
 
 Скрипт печатает JSON-ссылку каждого пользователя, а полный список (панель + все
-форматы подписок) сохраняется в **`/root/3x-ui-pro-credentials.txt`** (0600):
+форматы подписок) сохраняется в **`/root/README_PANEL.md`** (0600):
 
 ```
 https://<домен>/<путь>/eternal-1        # raw (все клиенты)

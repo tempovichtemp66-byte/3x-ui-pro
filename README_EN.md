@@ -99,7 +99,7 @@ By default **10 never-expiring users** are created (`-users N`, 1–100):
 REALITY links automatically carry `flow=xtls-rprx-vision`.
 
 The installer prints each user's JSON link, and the full list (panel + every
-subscription format) is saved to **`/root/3x-ui-pro-credentials.txt`** (0600):
+subscription format) is saved to **`/root/README_PANEL.md`** (0600):
 
 ```
 https://<domain>/<path>/eternal-1        # raw (any client)

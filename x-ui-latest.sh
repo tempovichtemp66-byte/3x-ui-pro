@@ -270,31 +270,48 @@ EOF
     chmod 600 "$STATE_FILE"
 }
 
-# Human-readable copy of everything the operator needs (root-only, 0600).
-save_credentials() {
-    local file="/root/3x-ui-pro-credentials.txt" u
+# Everything the operator needs, in Markdown: /root/README_PANEL.md (0600).
+save_panel_readme() {
+    local file="/root/README_PANEL.md" u xray_ver mt_note
+    xray_ver=$("$(xray_bin_path)" version 2>/dev/null | awk 'NR==1 {print $2}')
+    [[ -n "$MTPROTO_ID" ]] && mt_note=", mtproto" || mt_note=""
     {
-        echo "3x-ui-pro — доступы и подписки ($(date -u '+%Y-%m-%d %H:%M:%S UTC'))"
+        echo "# 3x-ui-pro — доступы и подписки"
         echo
-        echo "Панель:   https://${domain}/${panel_path}/"
-        echo "Логин:    ${config_username}"
-        echo "Пароль:   ${config_password}"
-        echo "Сброс:    x-ui setting -username NEW -password NEW && x-ui restart"
+        echo "Создано: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
         echo
-        echo "Вечных пользователей: ${eternal_users} (без срока, безлимит)"
-        echo "subId = ${subid_base}-N   (raw/clash: те же subId, другие пути)"
+        echo "## Панель"
         echo
+        echo "- URL: https://${domain}/${panel_path}/"
+        echo "- Логин: \`${config_username}\`"
+        echo "- Пароль: \`${config_password}\`"
+        echo "- Сброс из SSH: \`x-ui setting -username NEW -password NEW && x-ui restart\`"
+        echo
+        echo "## Сервер"
+        echo
+        echo "- Домен: \`${domain}\`"
+        echo "- Маскировка REALITY (SNI): \`${sni_domain}\`"
+        echo "- Заглушка: \`${cover}\`"
+        echo "- Ядро Xray: \`${xray_ver:-unknown}\`"
+        echo "- 443/tcp: reality, ws, grpc, httpupgrade, xhttp, trojan, vmess${mt_note}"
+        echo "- 443/udp: hysteria2; прочие порты: kcp ${kcp_port}/udp, tuic ${tuic_port}/udp, wireguard ${wg_port}/udp, awg ${awg_port}/udp, ss ${ss_port}/tcp+udp"
+        echo "- WARP (исходящий трафик): $( [[ "$WARP_ENABLED" == "true" ]] && echo 'включён' || echo 'ВЫКЛЮЧЕН' )"
+        echo "- Диагностика: https://${domain}/${panel_path}/diag (нужен вход в панель)"
+        echo
+        echo "## Вечные пользователи (${eternal_users} шт., без срока, безлимит)"
+        echo
+        echo "Пути подписок: \`/${sub_path}/\` — raw, \`/${json_path}/\` — JSON (Happ), \`/${clash_path}/\` — Clash."
+        echo "\`subId\` пользователя N: \`${subid_base}-N\`; туннели: \`${subid_base}-N-wg\`, \`${subid_base}-N-awg\`."
+        echo
+        echo "| # | Happ (JSON) | raw | WireGuard | AmneziaWG (vpn://) |"
+        echo "|---|-------------|-----|-----------|--------------------|"
         for ((u = 1; u <= eternal_users; u++)); do
-            printf '  #%-2s JSON (Happ): %s\n' "$u" "https://${domain}/${json_path}/${subid_base}-${u}"
-            printf '       raw       : %s\n' "https://${domain}/${sub_path}/${subid_base}-${u}"
+            echo "| ${u} | https://${domain}/${json_path}/${subid_base}-${u} | https://${domain}/${sub_path}/${subid_base}-${u} | https://${domain}/${sub_path}/${subid_base}-${u}-wg | https://${domain}/${sub_path}/${subid_base}-${u}-awg |"
         done
         echo
-        echo "Clash:         https://${domain}/${clash_path}/<subId>"
-        echo "WireGuard:     https://${domain}/${sub_path}/${subid_base}-N-wg"
-        echo "AmneziaWG:     https://${domain}/${sub_path}/${subid_base}-N-awg  (vpn:// для AmneziaVPN)"
-        echo
-        echo "SNI маскировки: ${sni_domain}   Заглушка: ${cover}"
-        echo "Диагностика:    https://${domain}/${panel_path}/diag (нужен вход в панель)"
+        echo "> Happ: импортируй JSON-ссылку — вместе с ней приезжает роутинг RoscomVPN."
+        echo "> AmneziaVPN: raw-ссылка с суффиксом \`-awg\` (vpn://)."
+        echo "> WireGuard в РФ часто режется DPI: если не подключается — не используй, остальные протоколы не затрагивает."
     } > "$file"
     chmod 600 "$file"
 }
@@ -411,16 +428,28 @@ install_packages() {
 
 # ─────────────────────────────────────────────────────────────────────────────
 # SSL CERTIFICATES (single domain)
+#   The trusted certificate always ends up in /root/cert/<domain>/ so every
+#   consumer (nginx, panel, subscription server, hysteria/tuic) uses one path.
+#   If Let's Encrypt cannot issue (rate limit, DNS/HTTP-01 problem), a
+#   self-signed certificate is generated instead of failing the install;
+#   hosts then advertise allowInsecure=1.
 # ─────────────────────────────────────────────────────────────────────────────
+CERT_SELF_SIGNED="no"
+
+link_le_cert() {
+    mkdir -p "/root/cert/${domain}"
+    chmod 755 /root/cert
+    ln -sf "/etc/letsencrypt/live/${domain}/fullchain.pem" "/root/cert/${domain}/fullchain.pem"
+    ln -sf "/etc/letsencrypt/live/${domain}/privkey.pem"   "/root/cert/${domain}/privkey.pem"
+}
+
 get_ssl_certs() {
     systemctl stop nginx 2>/dev/null || true
     fuser -k 80/tcp 80/udp 443/tcp 443/udp 2>/dev/null || true
+    CERT_SELF_SIGNED="no"
 
     if [[ -d "/etc/letsencrypt/live/${domain}/" ]]; then
-        mkdir -p /root/cert/${domain}
-        chmod 755 /root/cert
-        ln -sf /etc/letsencrypt/live/${domain}/fullchain.pem /root/cert/${domain}/fullchain.pem
-        ln -sf /etc/letsencrypt/live/${domain}/privkey.pem   /root/cert/${domain}/privkey.pem
+        link_le_cert
         return 0
     fi
 
@@ -434,16 +463,25 @@ get_ssl_certs() {
     fi
 
     certbot certonly --standalone --non-interactive --agree-tos \
-        --register-unsafely-without-email -d "$domain"
-    if [[ ! -d "/etc/letsencrypt/live/${domain}/" ]]; then
-        systemctl start nginx >/dev/null 2>&1
-        msg_err "$domain SSL could not be generated! Check Domain/IP." && exit 1
+        --register-unsafely-without-email -d "$domain" || true
+    if [[ -d "/etc/letsencrypt/live/${domain}/" ]]; then
+        link_le_cert
+        return 0
     fi
 
-    mkdir -p /root/cert/${domain}
+    # certbot failed: keep the install alive with a self-signed certificate.
+    msg_err "Let's Encrypt certificate for ${domain} could not be issued — using a self-signed one."
+    msg_inf "Fix the cause (DNS/port 80/rate limit) and re-run with -patch y to get a trusted certificate."
+    rm -rf "/root/cert/${domain}"
+    mkdir -p "/root/cert/${domain}"
     chmod 755 /root/cert
-    ln -sf /etc/letsencrypt/live/${domain}/fullchain.pem /root/cert/${domain}/fullchain.pem
-    ln -sf /etc/letsencrypt/live/${domain}/privkey.pem   /root/cert/${domain}/privkey.pem
+    openssl req -x509 -nodes -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 \
+        -keyout "/root/cert/${domain}/privkey.pem" \
+        -out "/root/cert/${domain}/fullchain.pem" \
+        -subj "/CN=${domain}" -addext "subjectAltName=DNS:${domain}" -days 3650 2>/dev/null
+    chmod 600 "/root/cert/${domain}/privkey.pem"
+    CERT_SELF_SIGNED="yes"
+    systemctl start nginx >/dev/null 2>&1 || true
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -503,8 +541,25 @@ EOF
 
     grep -xqFR "stream { include /etc/nginx/stream-enabled/*.conf; }" /etc/nginx/* \
         || echo "stream { include /etc/nginx/stream-enabled/*.conf; }" >> /etc/nginx/nginx.conf
-    grep -xqFR "load_module modules/ngx_stream_module.so;" /etc/nginx/* \
-        || sed -i '1s/^/load_module \/usr\/lib\/nginx\/modules\/ngx_stream_module.so; /' /etc/nginx/nginx.conf
+    # nginx-full loads the stream module in one of two ways depending on the
+    # install: via modules-enabled/50-mod-stream.conf (a symlink — grep -r does
+    # not follow those), or not at all. Make sure it is loaded exactly once,
+    # whatever a previous run left behind.
+    local stream_loaded=no
+    if [[ -e /etc/nginx/modules-enabled/50-mod-stream.conf ]]; then
+        stream_loaded=yes
+    elif grep -Rqs 'ngx_stream_module' /etc/nginx/modules-enabled/ 2>/dev/null; then
+        stream_loaded=yes
+    fi
+    if [[ "$stream_loaded" == yes ]]; then
+        # modules-enabled already loads it: drop our own line if an older run added one
+        sed -i -E 's|load_module[^;]*ngx_stream_module\.so;[[:space:]]*||g' /etc/nginx/nginx.conf
+    elif grep -q 'ngx_stream_module' /etc/nginx/nginx.conf; then
+        # not loaded via modules-enabled: self-heal duplicate lines in nginx.conf
+        sed -i -E 's|(load_module[^;]*ngx_stream_module\.so;)([[:space:]]*load_module[^;]*ngx_stream_module\.so;)+|\1|g' /etc/nginx/nginx.conf
+    else
+        sed -i '1s|^|load_module /usr/lib/nginx/modules/ngx_stream_module.so;\n|' /etc/nginx/nginx.conf
+    fi
     grep -xqFR "worker_rlimit_nofile 16384;" /etc/nginx/* \
         || echo "worker_rlimit_nofile 16384;" >> /etc/nginx/nginx.conf
     sed -i "/worker_connections/c\worker_connections 4096;" /etc/nginx/nginx.conf
@@ -646,8 +701,8 @@ server {
     client_body_buffer_size 512k;
     ssl_protocols TLSv1.2 TLSv1.3;
     ssl_ciphers HIGH:!aNULL:!eNULL:!MD5:!DES:!RC4:!ADH:!SSLv3:!EXP:!PSK:!DSS;
-    ssl_certificate     /etc/letsencrypt/live/${domain}/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/${domain}/privkey.pem;
+    ssl_certificate     /root/cert/${domain}/fullchain.pem;
+    ssl_certificate_key /root/cert/${domain}/privkey.pem;
     if (\$host !~* ^(.+\.)?${domain}\$)            { return 444; }
     if (\$scheme ~* https)                          { set \$safe 1; }
     if (\$ssl_server_name !~* ^(.+\.)?${domain}\$) { set \$safe "\${safe}0"; }
@@ -1622,12 +1677,14 @@ delete_managed_hosts() {
     done
 }
 
-add_host_group() { # add_host_group <remark> <inbound-ids-csv> <address:port> <security> <sni> [alpn-csv]
-    local remark="$1" ids_csv="$2" endpoint="$3" security="$4" hsni="$5" alpn_csv="${6:-}"
+add_host_group() { # add_host_group <remark> <ids-csv> <address:port> <security> <sni> [alpn-csv] [allow-insecure] [pins-csv]
+    local remark="$1" ids_csv="$2" endpoint="$3" security="$4" hsni="$5" alpn_csv="${6:-}" insecure="${7:-no}" pins_csv="${8:-}"
     local payload="${WORKDIR}/host.json" resp
-    local ids_json alpn_json="[]"
+    local ids_json alpn_json="[]" insecure_json="false" pins_json="[]"
     ids_json=$(echo "$ids_csv" | tr ',' '\n' | jq -R 'tonumber' | jq -s -c '.')
     [[ -n "$alpn_csv" ]] && alpn_json=$(echo "$alpn_csv" | tr ',' '\n' | jq -R . | jq -s -c '.')
+    [[ "$insecure" == yes ]] && insecure_json="true"
+    [[ -n "$pins_csv" ]] && pins_json=$(echo "$pins_csv" | tr ',' '\n' | jq -R . | jq -s -c '.')
     cat > "$payload" <<EOF
 {
   "inboundIds": ${ids_json},
@@ -1637,6 +1694,8 @@ add_host_group() { # add_host_group <remark> <inbound-ids-csv> <address:port> <s
   "security": "${security}",
   "sni": "${hsni}",
   "fingerprint": "firefox",
+  "allowInsecure": ${insecure_json},
+  "pinnedPeerCertSha256": ${pins_json},
   "alpn": ${alpn_json}
 }
 EOF
@@ -1649,29 +1708,39 @@ EOF
 }
 
 install_hosts() {
+    # With a self-signed certificate (Let's Encrypt unavailable) TLS links must
+    # carry the certificate pin — xray-core v26 removed allowInsecure, so a pin
+    # is the only way clients can trust our own certificate. REALITY needs
+    # neither (it never verifies the peer certificate).
+    local insec="no" pin=""
+    if [[ "$CERT_SELF_SIGNED" == yes ]]; then
+        insec="yes"
+        pin=$(openssl x509 -in "/root/cert/${domain}/fullchain.pem" -outform der \
+              | openssl dgst -sha256 -binary | base64 -w0)
+    fi
     # REALITY keeps its own TLS params; only the public address/port is
     # overridden. No host SNI: with one set, the panel injects
     # realitySettings.serverNames into the JSON subscription client configs,
     # and xray-core v26 clients reject that field (they want serverName).
     # The link still gets its SNI from the inbound's own serverNames.
-    add_host_group "3x-ui-pro reality" "$REALITY_ID" "${domain}:443" "same" "" ""
+    add_host_group "3x-ui-pro reality" "$REALITY_ID" "${domain}:443" "same" "" "" "no" ""
     # ALPN must match the transport: WebSocket/HTTPUpgrade speak HTTP/1.1,
     # gRPC needs h2, XHTTP accepts both. A wrong ALPN makes nginx translate the
     # protocol and the xray inbound drops the connection.
     add_host_group "3x-ui-pro ws" \
-        "$WS_ID,$TROJAN_WS_ID,$VMESS_WS_ID,$HTTPUPGRADE_ID" "${domain}:443" "tls" "" "http/1.1"
+        "$WS_ID,$TROJAN_WS_ID,$VMESS_WS_ID,$HTTPUPGRADE_ID" "${domain}:443" "tls" "" "http/1.1" "$insec" "$pin"
     add_host_group "3x-ui-pro grpc" \
-        "$GRPC_ID,$TROJAN_GRPC_ID,$VMESS_GRPC_ID" "${domain}:443" "tls" "" "h2"
+        "$GRPC_ID,$TROJAN_GRPC_ID,$VMESS_GRPC_ID" "${domain}:443" "tls" "" "h2" "$insec" "$pin"
     add_host_group "3x-ui-pro xhttp" \
-        "$XHTTP_ID" "${domain}:443" "tls" "" "h2,http/1.1"
+        "$XHTTP_ID" "${domain}:443" "tls" "" "h2,http/1.1" "$insec" "$pin"
     # UDP / sidecar protocols advertise their own ports.
-    add_host_group "3x-ui-pro hysteria" "$HYSTERIA_ID" "${domain}:443" "tls" "${domain}" ""
-    add_host_group "3x-ui-pro kcp"      "$KCP_ID"      "${domain}:${kcp_port}" "none" "" ""
-    add_host_group "3x-ui-pro tuic"     "$TUIC_ID"     "${domain}:${tuic_port}" "tls" "${domain}" ""
-    add_host_group "3x-ui-pro ss"       "$SS_ID"       "${domain}:${ss_port}" "none" "" ""
-    add_host_group "3x-ui-pro wireguard" "$WG_ID"      "${domain}:${wg_port}" "none" "" ""
-    add_host_group "3x-ui-pro awg"      "$AWG_ID"      "${domain}:${awg_port}" "none" "" ""
-    [[ -n "$MTPROTO_ID" ]] && add_host_group "3x-ui-pro mtproto" "$MTPROTO_ID" "${domain}:443" "none" "" ""
+    add_host_group "3x-ui-pro hysteria" "$HYSTERIA_ID" "${domain}:443" "tls" "${domain}" "" "$insec" "$pin"
+    add_host_group "3x-ui-pro kcp"      "$KCP_ID"      "${domain}:${kcp_port}" "none" "" "" "no" ""
+    add_host_group "3x-ui-pro tuic"     "$TUIC_ID"     "${domain}:${tuic_port}" "tls" "${domain}" "" "$insec" "$pin"
+    add_host_group "3x-ui-pro ss"       "$SS_ID"       "${domain}:${ss_port}" "none" "" "" "no" ""
+    add_host_group "3x-ui-pro wireguard" "$WG_ID"      "${domain}:${wg_port}" "none" "" "" "no" ""
+    add_host_group "3x-ui-pro awg"      "$AWG_ID"      "${domain}:${awg_port}" "none" "" "" "no" ""
+    [[ -n "$MTPROTO_ID" ]] && add_host_group "3x-ui-pro mtproto" "$MTPROTO_ID" "${domain}:443" "none" "" "" "no" ""
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1945,7 +2014,7 @@ show_results() {
         echo -e "Password:  ${config_password}"
         msg_inf "────────────────────────────────────────────────────────────────────────────────"
         msg_inf "Eternal users: ${eternal_users} × (no expiry, unlimited traffic each)"
-        msg_inf "Full list (panel + every subscription link): /root/3x-ui-pro-credentials.txt"
+        msg_inf "Full list (panel + every subscription link): /root/README_PANEL.md"
         local u
         for ((u = 1; u <= eternal_users; u++)); do
             echo -e "  #${u}  https://${domain}/${json_path}/${subid_base}-${u}"
@@ -2182,7 +2251,7 @@ main() {
     x-ui restart
 
     save_state
-    save_credentials
+    save_panel_readme
     show_results
 }
 
