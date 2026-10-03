@@ -154,16 +154,19 @@ mode_list() {
 }
 
 mode_del() {
-    local name id out ib_ids id2
+    local name id out ib_ids id2 hid
     for name in "${DEL_NAMES[@]}"; do
         out=$(api GET /nodes/list)
         id=$(echo "$out" | jq -r --arg n "$name" '.obj[]? | select(.name == $n) | .id' | head -n1)
         [[ -n "$id" ]] || { msg_err "Node '$name' not found on the master."; continue; }
         ib_ids=$(api GET /inbounds/list | jq -r --argjson nid "$id" '[.obj[]? | select(.nodeId == $nid) | .id] | join(" ")')
         for id2 in $ib_ids; do
+            for hid in $(api GET /hosts/list | jq -r --argjson iid "$id2" '.obj[]? | select(.inboundId == $iid) | .id' 2>/dev/null); do
+                api POST "/hosts/del/${hid}" >/dev/null || true
+            done
             api POST "/inbounds/del/${id2}" >/dev/null || true
         done
-        [[ -n "$ib_ids" ]] && msg_inf "Removed ${ib_ids// /,} inbound(s) of node '$name'."
+        [[ -n "$ib_ids" ]] && msg_inf "Removed ${ib_ids// /,} inbound(s) (and their hosts) of node '$name'."
         if api POST "/nodes/del/${id}" | api_ok; then
             msg_ok "Node '$name' deleted."
         else
@@ -198,13 +201,15 @@ mode_check() {
 
 # ─── Add nodes + attach users ────────────────────────────────────────────────
 mode_add() {
-    local spec name node_id
+    local spec node_id
     local -A NODE_IDS=()
+    local -A NODE_HOSTS=()
 
     [[ ${#NODES[@]} -gt 0 ]] || { msg_err "No -node specs given (see header)."; exit 1; }
 
     for spec in "${NODES[@]}"; do
         parse_spec "$spec" || exit 1
+        NODE_HOSTS["$N_NAME"]="$N_ADDR"
         msg_inf "→ Adding node '$N_NAME' (${N_SCHEME}://${N_ADDR}:${N_PORT}${N_BASE})..."
         local payload resp
         payload=$(node_payload)
@@ -239,6 +244,51 @@ mode_add() {
     done
     [[ "$ok" == "1" ]] || { msg_err "Node inbounds were not imported within 90s — check nodes/list and the panel log."; exit 1; }
     msg_ok "Node inbounds are imported into the master."
+
+    # Host overrides: node TCP inbounds listen on 127.0.0.1 behind the node's
+    # nginx SNI router, so their share links must advertise the node's :443.
+    # REALITY hosts keep security "same" (SNI/keys come from the inbound);
+    # the TLS-fronted ones (ws/grpc/httpupgrade/xhttp/trojan/vmess) get "tls".
+    # Own-port protocols (kcp/tuic/hysteria/shadowsocks) keep their ports and
+    # need no host; wireguard/amneziawg/mtproto are skipped entirely.
+    local name
+    for name in "${!NODE_IDS[@]}"; do
+        local nid ibs reality_ids tls_ids ib proto net sec id3
+        nid="${NODE_IDS[$name]}"
+        ibs=$(api GET /inbounds/list | jq -c --argjson nid "$nid" '[.obj[]? | select(.nodeId == $nid)]')
+        reality_ids=""; tls_ids=""
+        while IFS= read -r ib; do
+            [[ -z "$ib" ]] && continue
+            proto=$(echo "$ib" | jq -r '.protocol')
+            net=$(echo "$ib" | jq -r '.streamSettings.network // "tcp"')
+            sec=$(echo "$ib" | jq -r '.streamSettings.security // "none"')
+            case "$proto" in
+                wireguard|amneziawg|mtproto|tuic|hysteria|shadowsocks) continue ;;
+            esac
+            [[ "$net" == "kcp" ]] && continue
+            id3=$(echo "$ib" | jq -r '.id')
+            if [[ "$sec" == "reality" ]]; then
+                reality_ids="${reality_ids} ${id3}"
+            else
+                tls_ids="${tls_ids} ${id3}"
+            fi
+        done <<< "$(echo "$ibs" | jq -c '.[]')"
+
+        add_hosts() { # <security> <space-separated inbound ids>
+            local sec2="$1" ids2="$2" payload
+            [[ -n "$ids2" ]] || return 0
+            payload=$(jq -nc --arg r "3x-ui-pro node ${name}" --arg a "${NODE_HOSTS[$name]}" \
+                --arg s "$sec2" \
+                --argjson ids "$(echo "$ids2" | tr ' ' '\n' | jq -R 'tonumber' | jq -s -c '.')" \
+                '{inboundIds:$ids, hosts:[$a], remark:$r, sortOrder:0, security:$s, sni:"",
+                  fingerprint:"firefox", allowInsecure:false, pinnedPeerCertSha256:"", alpn:""}')
+            api POST /hosts/add -H 'Content-Type: application/json' -d "$payload" | api_ok \
+                || msg_err "  failed to add host (security=$sec2) for node '$name'"
+        }
+        add_hosts "same" "$reality_ids"
+        add_hosts "tls" "$tls_ids"
+        msg_ok "Host overrides for node '$name' added (TCP inbounds advertised via ${NODE_HOSTS[$name]}:443)."
+    done
 
     # Attach every eternal user to the node inbounds (REALITY gets the flow).
     local email attached=0

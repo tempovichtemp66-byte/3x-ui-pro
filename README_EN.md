@@ -182,7 +182,7 @@ bash x-ui-node.sh -node "USA|https|us.example.com|443|/AbCdEf/|TOKEN" \
                   -node "EU|https|eu.example.com|443|/GhIjKl/|TOKEN"
 ```
 
-What happens: nodes are added to the master (`POST /panel/api/nodes/add`), their inbounds are imported, and every eternal master user is attached to the node inbounds — so the existing subscription `https://<master>/<sub-path>/<subid>` starts emitting profiles pointing at the node addresses. No clients need to be created on the slaves; the master provisions them.
+What happens: nodes are added to the master (`POST /panel/api/nodes/add`), their inbounds are imported, and every eternal master user is attached to the node inbounds — so the existing subscription `https://<master>/<sub-path>/<subid>` starts emitting profiles pointing at the node addresses. No clients need to be created on the slaves; the master provisions them. For the node TCP inbounds the script also creates host overrides (`hosts`) so links advertise the node's `:443` entry (nginx SNI router) instead of raw local ports; own-port protocols (kcp/tuic/hysteria/ss) and wireguard/amneziawg/mtproto are left untouched.
 
 Other modes:
 
