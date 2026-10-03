@@ -398,13 +398,13 @@ mode_add() {
             fi
             remark="SLAVE"
             local node_guid payload resp2 gid
-            node_guid=$(api GET /nodes/list | jq -r --argjson nid "$nid" '.obj[]? | select(.id == $nid) | .guid' | head -n1)
+            node_guid=$(api GET /nodes/list | jq -r --arg n "$name" '.obj[]? | select(.name == $n) | .guid' | head -n1)
             payload=$(jq -nc --arg r "$remark" --arg h "$n_host" --argjson iid "$ids" \
                 --arg p "${path:-}" --arg hh "${host:-}" --arg ng "$node_guid" \
                 '{remark:$r, inboundIds:[$iid], hosts:[$h], port:443, security:"tls",
                   sni:"", hostHeader:$hh, path:$p, sortOrder:1, fingerprint:"firefox",
                   allowInsecure:false, pinnedPeerCertSha256:[], alpn:[], nodeGuids:[$ng]}')
-            gid=$(api GET /hosts/list | jq -r --arg g "$node_guid" '[.obj[]? | select(((.nodeGuids // []) | index($g)) != null and ((.inboundIds // []) | index($iid)) != null) | .groupId] | .[0] // empty' | head -n1)
+            gid=$(api GET /hosts/list | jq -r --arg g "$node_guid" --argjson iid "$ids" '[.obj[]? | select(((.nodeGuids // []) | index($g)) != null and ((.inboundIds // []) | index($iid)) != null) | .groupId] | .[0] // empty' | head -n1)
             if [[ -n "$gid" ]]; then
                 resp2=$(api POST "/hosts/update/${gid}" -H 'Content-Type: application/json' -d "$payload")
             else
