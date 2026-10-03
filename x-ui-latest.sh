@@ -2104,11 +2104,18 @@ show_results() {
         msg_inf "  (use a JSON link in Happ — RoscomVPN routing rides along)"
         msg_inf "────────────────────────────────────────────────────────────────────────────────"
         msg_inf "Happ (JSON) subscription #1 — scan the QR to import:"
-        echo -e "  https://${domain}/${json_path}/${subid_base}-1"
-        if command -v qrencode >/dev/null 2>&1 || apt-get install -y qrencode >/dev/null 2>&1; then
-            qrencode -t ANSIUTF8 -s 2 -m 1 "https://${domain}/${json_path}/${subid_base}-1" 2>/dev/null \
-                || qrencode -t UTF8 "https://${domain}/${json_path}/${subid_base}-1" 2>/dev/null \
-                || true
+        local qr_url="https://${domain}/${json_path}/${subid_base}-1"
+        echo -e "  ${qr_url}"
+        if ! command -v qrencode >/dev/null 2>&1; then
+            msg_inf "qrencode is missing — installing it (apt-get install -y qrencode)..."
+            apt-get update -qq >/dev/null 2>&1 || true
+            apt-get install -y qrencode >/dev/null 2>&1 \
+                || msg_err "qrencode install failed — QR skipped, use the link above (apt-get install -y qrencode)"
+        fi
+        if command -v qrencode >/dev/null 2>&1; then
+            qrencode -t ANSIUTF8 -s 2 -m 1 "$qr_url" 2>/dev/null \
+                || qrencode -t UTF8 "$qr_url" 2>/dev/null \
+                || msg_err "QR rendering failed — use the link above"
         fi
         msg_inf "────────────────────────────────────────────────────────────────────────────────"
         msg_inf "SNI masking: ${sni_domain}  |  cover site: ${cover}"
