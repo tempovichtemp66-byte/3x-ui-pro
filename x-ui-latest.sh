@@ -1779,14 +1779,13 @@ install_hosts() {
 # every client request took 5-10s. Probe with ICMP (ping -M do) and clamp the
 # tunnel MTU to [1280, 1420].
 #
-# The WARP anycast also answers differently per address family: some providers
-# anchor IPv6 at a far-away POP while IPv4 lands at the nearest one (AEZA:
-# ~7ms v4 vs ~45ms v6). The tunnel MTU is therefore sized so the IPv6 path
-# fits too (IPv6 overhead is 64B vs 44B for IPv4) — an IPv4-only-safe MTU
-# breaks IPv6 egress inside the tunnel, clients fall back to the IPv4 WARP
-# range (104.28.x.x) which AI services flag as VPN, while the IPv6 WARP
-# egress (2a09:bacx::) stays clean. domainStrategy stays dual-stack so the
-# tunnel carries both families.
+# The WARP anycast answers differently per address family: some providers
+# anchor IPv6 at a far-away POP (AEZA: ~7ms v4 vs ~45ms v6) and the IPv6 data
+# path can be lossy, so the tunnel prefers the IPv4 endpoint. The tunnel MTU
+# is sized so the IPv6 path fits too (64B vs 44B overhead) — harmless and safe.
+# AI sites (google/openai) are routed direct instead of WARP: Cloudflare's
+# IPv4 WARP range (104.28.x.x) is flagged as VPN by Google/OpenAI, while a
+# hosting IP is not.
 # ─────────────────────────────────────────────────────────────────────────────
 WARP_EP_HOST="${WARP_EP_HOST:-engage.cloudflareclient.com}"
 WARP_TUN_MTU=""
@@ -1797,6 +1796,7 @@ detect_warp_pmtu() {
     v4=$(getent ahostsv4 "$host" 2>/dev/null | awk 'NR==1{print $1}')
     v6=$(getent ahostsv6 "$host" 2>/dev/null | awk 'NR==1{print $1}')
     if [[ -n "$v4" ]]; then
+        WARP_DOMAIN_STRATEGY="ForceIPv4"
         probe="$v4"; ipver=4
     elif [[ -n "$v6" ]]; then
         probe="$v6"; ipver=6
@@ -1911,6 +1911,7 @@ configure_warp() {
             "domainStrategy": "IPIfNonMatch",
             "rules": [
               {"type": "field", "outboundTag": "direct", "ip": ["geoip:private"]},
+              {"type": "field", "outboundTag": "direct", "domain": ["geosite:google", "geosite:openai"]},
               {"type": "field", "outboundTag": (if $has_warp then "warp" else "direct" end), "network": "tcp,udp"}
             ]
           }
