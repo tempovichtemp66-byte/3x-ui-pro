@@ -170,16 +170,24 @@ YouTube/Telegram/GitHub и остальной мир — через прокси
 
 ## Мульти-нода: несколько серверов в одной подписке
 
-Одна подписка мастера отдаёт подключения и к slave-серверам. Скрипт `x-ui-node.sh` (запускать **на мастере**) делает это так (проверено на 3x-ui v3.8.5):
+Одна подписка мастера отдаёт подключения и к slave-серверам. Максимально просто — два шага:
+
+**Шаг 1. На slave-сервере** выполните:
 
 ```bash
-wget -qO x-ui-node.sh https://raw.githubusercontent.com/tempovichtemp66-byte/3x-ui-pro/main/x-ui-node.sh
+bash <(curl -fsSL https://raw.githubusercontent.com/tempovichtemp66-byte/3x-ui-pro/main/x-ui-node.sh) -slave -name "Метка"
+```
 
-# токен slave-ноды (выполнить ОДИН раз на slave):
-#   /usr/local/x-ui/x-ui setting -getApiToken true
+Скрипт сам определит домен, порт, путь панели, тип сертификата и выдаст готовую команду для мастера (например `bash x-ui-node.sh -node "Москва|https|msk.example.com|443|/AbCdEf/|TOKEN"`).
 
-bash x-ui-node.sh -node "USA|https|us.example.com|443|/AbCdEf/|TOKEN" \
-                  -node "EU|https|eu.example.com|443|/GhIjKl/|TOKEN"
+**Шаг 2. На master-ноде** просто вставьте эту команду (или передайте строку как аргумент / через пайп):
+
+```bash
+bash x-ui-node.sh -node "Москва|https|msk.example.com|443|/AbCdEf/|TOKEN"
+# или
+bash x-ui-node.sh "Москва|https|msk.example.com|443|/AbCdEf/|TOKEN"
+# или
+echo "Москва|https|msk.example.com|443|/AbCdEf/|TOKEN" | bash x-ui-node.sh
 ```
 
 Механика: нода регистрируется на мастере (мониторинг/статус), для каждого поддерживаемого инбаунда мастера создаётся **host-оверрайд** на адрес slave (`:443`, путь slave), а uuid вечных пользователей мастера **провижинятся на slave** — подписка `https://<мастер>/<sub-path>/<subid>` начинает отдавать дополнительные профили с адресами нод. Работает для `vless/trojan/vmess` поверх `ws/httpupgrade/xhttp`. Не покрываются (технически не склеиваются): REALITY (ключи сервера), gRPC (serviceName), kcp/tuic/hysteria/shadowsocks (своя авторизация), wireguard/amneziawg, mtproto.
@@ -191,10 +199,9 @@ bash x-ui-node.sh -list                          # список нод
 bash x-ui-node.sh -node "USA|...|TOKEN" -check   # здоровье + покрытие uuid
 bash x-ui-node.sh -del "USA" -node "USA|...|TOKEN"  # удалить ноду (токен нужен для очистки клиентов на slave)
 bash x-ui-node.sh -users 3 -node "..."           # только первых 3 пользователей
-bash x-ui-node.sh -tls skip -node "..."          # slave с самоподписанным сертификатом
 ```
 
-⚠️ `x-ui setting -getApiToken true` **ротирует токен при каждом вызове**: берите его на slave один раз и сразу передавайте скрипту; не запускайте команду повторно, иначе мастер начнёт получать 401/404 (лечится повторным запуском со свежим токеном).
+⚠️ `x-ui setting -getApiToken true` (и режим `-slave`) **ротируют токен при каждом запуске**: каждая команда из `-slave` действительна только одна — после её выполнения не запускайте `-slave` повторно, иначе мастер начнёт получать 401/404 (лечится повторным запуском со свежей командой).
 
 ---
 

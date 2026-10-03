@@ -170,16 +170,24 @@ subscription** to get the full profile.
 
 ## Multi-node: several servers in one subscription
 
-One master subscription serves connections to slave servers too. The `x-ui-node.sh` script (run **on the master**) does this as follows (verified on 3x-ui v3.8.5):
+One master subscription serves connections to slave servers too. As simple as possible — two steps:
+
+**Step 1. On the slave server** run:
 
 ```bash
-wget -qO x-ui-node.sh https://raw.githubusercontent.com/tempovichtemp66-byte/3x-ui-pro/main/x-ui-node.sh
+bash <(curl -fsSL https://raw.githubusercontent.com/tempovichtemp66-byte/3x-ui-pro/main/x-ui-node.sh) -slave -name "Label"
+```
 
-# slave node token (run ONCE on the slave):
-#   /usr/local/x-ui/x-ui setting -getApiToken true
+The script detects the domain, panel port/path and certificate type, then prints a ready-made command for the master (e.g. `bash x-ui-node.sh -node "Moscow|https|msk.example.com|443|/AbCdEf/|TOKEN"`).
 
-bash x-ui-node.sh -node "USA|https|us.example.com|443|/AbCdEf/|TOKEN" \
-                  -node "EU|https|eu.example.com|443|/GhIjKl/|TOKEN"
+**Step 2. On the master** just paste that command (or pass the string as an argument / via pipe):
+
+```bash
+bash x-ui-node.sh -node "Moscow|https|msk.example.com|443|/AbCdEf/|TOKEN"
+# or
+bash x-ui-node.sh "Moscow|https|msk.example.com|443|/AbCdEf/|TOKEN"
+# or
+echo "Moscow|https|msk.example.com|443|/AbCdEf/|TOKEN" | bash x-ui-node.sh
 ```
 
 Mechanics: the node is registered on the master (monitoring/status), every supported master inbound gets a **host override** pointing at the slave (`:443`, slave's path), and the master's eternal-user UUIDs are **provisioned onto the slave** — the subscription `https://<master>/<sub-path>/<subid>` then emits extra profiles pointing at the node addresses. Works for `vless/trojan/vmess` over `ws/httpupgrade/xhttp`. Not covered (cannot be bridged this way): REALITY (server keys), gRPC (serviceName), kcp/tuic/hysteria/shadowsocks (own auth), wireguard/amneziawg, mtproto.
@@ -191,10 +199,9 @@ bash x-ui-node.sh -list                          # list nodes
 bash x-ui-node.sh -node "USA|...|TOKEN" -check   # health + uuid coverage
 bash x-ui-node.sh -del "USA" -node "USA|...|TOKEN"  # remove a node (token needed to clean slave clients)
 bash x-ui-node.sh -users 3 -node "..."           # provision only the first 3 users
-bash x-ui-node.sh -tls skip -node "..."          # slave with a self-signed cert
 ```
 
-⚠️ `x-ui setting -getApiToken true` **rotates the token on every call**: fetch it on the slave once and pass it to the script right away; do not re-run the command afterwards or the master will start getting 401/404 (fix: re-run with a fresh token).
+⚠️ `x-ui setting -getApiToken true` (and the `-slave` mode) **rotate the token on every run**: each command printed by `-slave` works only once — after executing it, do not re-run `-slave` or the master will start getting 401/404 (fix: run the flow again with a fresh command).
 
 ## Command-line options
 
