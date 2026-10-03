@@ -39,11 +39,12 @@ Automated installer for the [3x-ui](https://github.com/MHSanaei/3x-ui) v3+ panel
 ## Installation
 
 ```bash
-wget -qO x-ui-latest.sh https://raw.githubusercontent.com/tempovichtemp66-byte/3x-ui-pro/main/x-ui-latest.sh
-bash x-ui-latest.sh -subdomain panel.example.com
+bash <(curl -fsSL https://raw.githubusercontent.com/tempovichtemp66-byte/3x-ui-pro/main/x-ui-latest.sh) -subdomain panel.example.com
 ```
 
 Without `-subdomain` the domain is requested interactively.
+
+**Reinstall** — run the same command again. The script removes the old panel/DB/nginx configs and sets everything up fresh (new ports, paths, client UUIDs and links — see `/root/README_PANEL.md`). Existing Let's Encrypt certificates are **not re-issued** (if `/etc/letsencrypt/live/<domain>/` exists, certbot is skipped and no LE rate limits are consumed). If you are reinstalling the master node — delete its slave nodes first (`x-ui-node.sh -del ...`) so no orphaned clients remain on the slaves.
 
 > Assets (cover site, diagnostics) are downloaded from this repository. If you forked
 > and renamed it, update `tempovichtemp66-byte/3x-ui-pro` in the files or set the environment:

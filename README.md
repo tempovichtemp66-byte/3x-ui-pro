@@ -39,11 +39,12 @@
 ## Установка
 
 ```bash
-wget -qO x-ui-latest.sh https://raw.githubusercontent.com/tempovichtemp66-byte/3x-ui-pro/main/x-ui-latest.sh
-bash x-ui-latest.sh -subdomain panel.example.com
+bash <(curl -fsSL https://raw.githubusercontent.com/tempovichtemp66-byte/3x-ui-pro/main/x-ui-latest.sh) -subdomain panel.example.com
 ```
 
 Без `-subdomain` домен спросят интерактивно.
+
+**Переустановка** — та же команда. Скрипт сам удалит старую панель/БД/nginx-конфиги и поставит всё заново (новые порты, пути, UUID клиентов и ссылки — ищите их в `/root/README_PANEL.md`). Существующие сертификаты Let's Encrypt при этом **не перевыпускаются** (если `/etc/letsencrypt/live/<домен>/` на месте — certbot не запускается, лимиты LE не тратятся). Если переустанавливаете master-ноду — сначала удалите slave-ноды (`x-ui-node.sh -del ...`), чтобы не осталось «висящих» клиентов на slave.
 
 > Ассеты (заглушка, диагностика) скачиваются из этого репозитория. Если вы форкнули
 > и переименовали его — поменяйте `tempovichtemp66-byte/3x-ui-pro` в файлах или задайте окружение:
