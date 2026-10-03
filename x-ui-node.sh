@@ -422,7 +422,13 @@ mode_add() {
         #     host override on the master + credential sync on the slave.
         local n_host ok=1 node_guid
         n_host=$(echo "$s_base" | sed -E 's|^https?://([^:/]+).*|\1|')
-        node_guid=$(api GET /nodes/list | jq -r --arg n "$name" '.obj[]? | select(.name == $n) | .guid' | head -n1)
+        node_guid=$(api GET /nodes/list | jq -r --argjson nid "${NODE_IDS[$name]}" '.obj[]? | select(.id == $nid) | .guid' | head -n1)
+        [[ -n "$node_guid" ]] || node_guid=$(api GET /nodes/list | jq -r --arg n "$name" '.obj[]? | select(.name == $n) | .guid' | head -n1)
+        if [[ -z "$node_guid" ]]; then
+            msg_err "  cannot resolve the GUID of node '$name' — host overrides SKIPPED (re-run with a fresh token)"
+            ok=0
+            continue
+        fi
         local uuid_inbounds="" reality_inbound=""
         local ib
         while IFS= read -r ib; do
@@ -490,7 +496,8 @@ mode_add() {
             payload2=$(jq -nc --arg h "$n_host" --argjson iid "$ids" \
                 --arg p "${path:-}" --arg hh "${hh:-}" --arg ng "$node_guid" \
                 --arg sec "$security" --argjson prt "$port" --argjson ai "$ai" \
-                '{remark:" SLAVE", inboundIds:[$iid], hosts:[$h], port:$prt, security:$sec,
+                --arg rmk " SLAVE ${name}" \
+                '{remark:$rmk, inboundIds:[$iid], hosts:[$h], port:$prt, security:$sec,
                   sni:"", hostHeader:$hh, path:$p, sortOrder:1, fingerprint:"firefox",
                   allowInsecure:$ai, pinnedPeerCertSha256:[], alpn:[], nodeGuids:[$ng]}')
             gid2=$(api GET /hosts/list | jq -r --arg g "$node_guid" --argjson iid "$ids" '[.obj[]? | select(((.nodeGuids // []) | index($g)) != null and ((.inboundIds // []) | index($iid)) != null) | .groupId] | .[0] // empty' | head -n1)
