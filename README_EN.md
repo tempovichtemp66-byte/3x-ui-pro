@@ -170,7 +170,7 @@ subscription** to get the full profile.
 
 ## Multi-node: several servers in one subscription
 
-3x-ui can combine multiple panels: the master manages slave nodes through their API, and a single subscription serves connections to every server. The `x-ui-node.sh` script (run **on the master**) does this automatically:
+One master subscription serves connections to slave servers too. The `x-ui-node.sh` script (run **on the master**) does this as follows (verified on 3x-ui v3.8.5):
 
 ```bash
 wget -qO x-ui-node.sh https://raw.githubusercontent.com/tempovichtemp66-byte/3x-ui-pro/main/x-ui-node.sh
@@ -182,19 +182,19 @@ bash x-ui-node.sh -node "USA|https|us.example.com|443|/AbCdEf/|TOKEN" \
                   -node "EU|https|eu.example.com|443|/GhIjKl/|TOKEN"
 ```
 
-What happens: nodes are added to the master (`POST /panel/api/nodes/add`), their inbounds are imported, and every eternal master user is attached to the node inbounds — so the existing subscription `https://<master>/<sub-path>/<subid>` starts emitting profiles pointing at the node addresses. No clients need to be created on the slaves; the master provisions them. For the node TCP inbounds the script also creates host overrides (`hosts`) so links advertise the node's `:443` entry (nginx SNI router) instead of raw local ports; own-port protocols (kcp/tuic/hysteria/ss) and wireguard/amneziawg/mtproto are left untouched.
+Mechanics: the node is registered on the master (monitoring/status), every supported master inbound gets a **host override** pointing at the slave (`:443`, slave's path), and the master's eternal-user UUIDs are **provisioned onto the slave** — the subscription `https://<master>/<sub-path>/<subid>` then emits extra profiles pointing at the node addresses. Works for `vless/trojan/vmess` over `ws/httpupgrade/xhttp`. Not covered (cannot be bridged this way): REALITY (server keys), gRPC (serviceName), kcp/tuic/hysteria/shadowsocks (own auth), wireguard/amneziawg, mtproto.
 
 Other modes:
 
 ```bash
-bash x-ui-node.sh -list                    # list nodes
-bash x-ui-node.sh -check                   # health + client coverage
-bash x-ui-node.sh -del "USA"               # remove a node and its inbounds
-bash x-ui-node.sh -users 3                 # attach only the first 3 users
-bash x-ui-node.sh -tls skip -node "..."    # node with a self-signed cert
+bash x-ui-node.sh -list                          # list nodes
+bash x-ui-node.sh -node "USA|...|TOKEN" -check   # health + uuid coverage
+bash x-ui-node.sh -del "USA" -node "USA|...|TOKEN"  # remove a node (token needed to clean slave clients)
+bash x-ui-node.sh -users 3 -node "..."           # provision only the first 3 users
+bash x-ui-node.sh -tls skip -node "..."          # slave with a self-signed cert
 ```
 
-⚠️ `x-ui setting -getApiToken true` **rotates the token on every call**: fetch it on the slave once and pass it to the script right away; do not re-run the command afterwards or the master will start getting 401s (fix: `-del` + `-node` again with a fresh token). Note: after adding a node, the panel migrates the master's own inbounds to the multi-node layout (tags `in-<port>-<protocol>`) — that is expected behaviour, subscriptions and clients keep working.
+⚠️ `x-ui setting -getApiToken true` **rotates the token on every call**: fetch it on the slave once and pass it to the script right away; do not re-run the command afterwards or the master will start getting 401/404 (fix: re-run with a fresh token).
 
 ## Command-line options
 

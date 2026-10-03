@@ -1,38 +1,43 @@
 #!/bin/bash
 #################### 3x-ui-pro — multi-node (x-ui-node.sh) #####################
 #
-# Attach slave 3x-ui panels to the master so a single subscription URL covers
-# every server. Run ON THE MASTER (a 3x-ui-pro installed panel):
+# One subscription, many servers. Run ON THE MASTER (a 3x-ui-pro panel):
 #
-#   bash x-ui-node.sh -node "USA|https|us.example.com|443|/AbCdEf/|TOKEN" \
-#                      -node "EU|https|eu.example.com|443|/GhIjKl/|TOKEN"
+#   bash x-ui-node.sh -node "USA|https|us.example.com|443|/AbCdEf/|TOKEN"
 #
-# For every eternal user on the master, the script attaches the user to every
-# inbound imported from the slave node; the master then provisions those
-# clients to the node, and the existing subscription URL starts emitting
-# profiles pointing at the node's address. Nothing on the slave needs manual
-# changes — just its API token.
+# What it does (verified against 3x-ui v3.8.5):
+#   1. Registers the slave panel as a node on the master (monitoring/health).
+#   2. For every matching inbound of the master (vless/trojan/vmess over
+#      ws/httpupgrade/xhttp) creates a *host override* pointing at the
+#      slave's :443 entry with the slave's path — the master's subscription
+#      then emits an extra profile per slave for the same client credentials.
+#   3. Provisions the master's eternal clients (same UUIDs) onto the slave,
+#      so the slave's xray accepts those connections.
 #
-# Node spec format (one per -node flag, repeatable):
+# Protocols covered: vless/trojan/vmess over ws, httpupgrade, xhttp.
+# Skipped (cannot be bridged this way): REALITY (server keys), gRPC
+# (serviceName is not overridable), kcp/tuic/hysteria/shadowsocks (own
+# auth/keys), wireguard/amneziawg (per-server peers), mtproto (separate mtg).
+#
+# Node spec (repeatable):
 #   name|scheme|address|port|basePath|apiToken
-#     name     unique label, e.g. "USA"
 #     scheme   https (default) or http
-#     address  hostname or IP only (no scheme, no port, no trailing /)
-#     port     the node panel's web port
+#     address  hostname or IP only (no scheme, no port)
+#     port     the node panel's web port (usually 443 via nginx)
 #     basePath the node panel's web base path, MUST end with '/'
 #     apiToken the node's API token — run ONCE on the node:
 #              /usr/local/x-ui/x-ui setting -getApiToken true
 #
 # !!! WARNING: that command ROTATES the token on every call. Fetch it once,
 #     paste it here, and do NOT re-run it afterwards or the master will get
-#     401s from the node (fix: re-add the node with a fresh token).
+#     401/404 from the node (fix: re-add the node with a fresh token).
 #
-# Other modes:
+# Modes:
 #   bash x-ui-node.sh -list                    # nodes on this master
-#   bash x-ui-node.sh -check                   # health + client coverage
-#   bash x-ui-node.sh -del <name> [...]        # remove node(s) + their inbounds
-#   bash x-ui-node.sh -users N                 # attach only first N users
-#   bash x-ui-node.sh -tls skip|verify|pin     # TLS verify mode for nodes (default verify)
+#   bash x-ui-node.sh -check                   # health + coverage check
+#   bash x-ui-node.sh -del <name> [...]        # remove node + its hosts/clients
+#   bash x-ui-node.sh -users N                 # provision only first N users
+#   bash x-ui-node.sh -tls skip|verify|pin     # TLS verify mode (default verify)
 #
 # WARNING: educational purposes only. Use only on servers you own and comply
 # with the laws of your country. Provided "as is", without warranty — see
@@ -40,18 +45,18 @@
 #
 [[ $EUID -ne 0 ]] && { echo "Run as root: sudo bash $0"; exit 1; }
 
-# ─── Output helpers ──────────────────────────────────────────────────────────
 msg_ok()  { echo -e "\e[1;42m $1 \e[0m"; }
 msg_err() { echo -e "\e[1;41m $1 \e[0m"; }
 msg_inf() { echo -e "\e[1;34m$1\e[0m"; }
 
 STATE_FILE="/etc/x-ui/3x-ui-pro/install.env"
 
-NODES=()            # "-node" specs
-USERS_ARG=""        # -users N (default: all eternal users)
-TLS_MODE="verify"   # verify | skip | pin
+NODES=()
+USERS_ARG=""
+TLS_MODE="verify"
 PIN_SHA=""
-MODE="add"          # add | list | check | del
+MODE="add"
+DEL_NAMES=()
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -66,7 +71,7 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# ─── Master panel API (the panel mints a fresh token per call — fetch ONCE) ──
+# ─── Master panel API (token is minted ONCE per run — it rotates per call) ──
 [[ -f "$STATE_FILE" ]] && source "$STATE_FILE"
 PANEL_PORT="${PANEL_PORT:-2053}"
 PANEL_PATH="${PANEL_PATH:-}"
@@ -90,7 +95,7 @@ api() { # api <METHOD> <path> [extra curl args...]
 api_ok() { jq -e '.success == true' >/dev/null 2>&1; }
 
 # ─── Node spec parsing ───────────────────────────────────────────────────────
-parse_spec() { # <spec> -> name scheme address port basePath token (global vars)
+parse_spec() { # <spec> -> N_NAME N_SCHEME N_ADDR N_PORT N_BASE N_TOKEN
     local spec="$1"
     N_NAME=$(echo "$spec" | cut -d'|' -f1)
     N_SCHEME=$(echo "$spec" | cut -d'|' -f2); [[ -n "$N_SCHEME" ]] || N_SCHEME="https"
@@ -103,23 +108,21 @@ parse_spec() { # <spec> -> name scheme address port basePath token (global vars)
     [[ "$N_SCHEME" == "http" || "$N_SCHEME" == "https" ]] || { msg_err "Bad scheme '$N_SCHEME'"; return 1; }
     [[ "$N_BASE" == */ ]] || N_BASE="${N_BASE}/"
     [[ "$N_ADDR" != *:* ]] || { msg_err "Address '$N_ADDR' must not contain a port (use the port field)."; return 1; }
-    case "$TLS_MODE" in
-        verify|skip|pin) ;;
-        *) msg_err "Bad -tls '$TLS_MODE' (verify|skip|pin)"; return 1 ;;
-    esac
+    case "$TLS_MODE" in verify|skip|pin) ;; *) msg_err "Bad -tls '$TLS_MODE'"; return 1 ;; esac
     return 0
 }
 
-node_payload() {
-    jq -nc --arg name "$N_NAME" --arg scheme "$N_SCHEME" --arg addr "$N_ADDR" \
-        --argjson port "$N_PORT" --arg base "$N_BASE" --arg tok "$N_TOKEN" \
-        --arg tls "$TLS_MODE" --arg pin "$PIN_SHA" \
-        '{name:$name, remark:"3x-ui-pro node", scheme:$scheme, address:$addr, port:($port|tonumber),
-          basePath:$base, apiToken:$tok, enable:true, allowPrivateAddress:true,
-          tlsVerifyMode:$tls, pinnedCertSha256:$pin}'
+# Slave panel API helper (token comes from the spec; it does NOT rotate)
+slave_api() { # slave_api <base-url> <token> <METHOD> <path> [extra curl args...]
+    local base="$1" tok="$2" method="$3" path="$4"
+    base="${base%/}"
+    shift 4
+    curl -sk --max-time 60 -X "$method" \
+        -H "Authorization: Bearer ${tok}" \
+        "${base}/panel/api${path}" "$@"
 }
 
-# ─── Eternal users on the master ─────────────────────────────────────────────
+# ─── Eternal users + their UUIDs on the master ──────────────────────────────
 eternal_users_list() {
     local base="${CLIENT_BASE:-eternal}" count
     if [[ -n "$USERS_ARG" ]] && [[ "$USERS_ARG" =~ ^[0-9]+$ ]]; then
@@ -131,18 +134,44 @@ eternal_users_list() {
     for ((i = 1; i <= count; i++)); do echo "${base}-${i}"; done
 }
 
-# ─── Flow per inbound protocol (REALITY needs xtls-rprx-vision) ─────────────
-flow_for_inbound() { # <inbound-json> -> echo "xtls-rprx-vision" | ""
-    local ib="$1" sec
-    sec=$(echo "$ib" | jq -r '.streamSettings.security // "none"')
-    if [[ "$sec" == "reality" ]]; then echo "xtls-rprx-vision"; else echo ""; fi
+master_client_uuid() { # <email> -> uuid
+    sqlite3 /etc/x-ui/x-ui.db "select uuid from clients where email='$1';" 2>/dev/null | head -n1
 }
 
-skip_protocol() { # wireguard/amneziawg peers are per-inbound, not sub clients
-    case "$1" in wireguard|amneziawg) return 0 ;; *) return 1 ;; esac
+# Supported transport list for bridging: uuid-based + path-overridable.
+# <protocol>:<network> pairs are matched between master and slave.
+supported_pair() { # <protocol> <network> -> 0 if supported
+    local proto="$1" net="$2"
+    case "${proto}:${net}" in
+        vless:ws|vless:httpupgrade|vless:xhttp|trojan:ws|trojan:httpupgrade|trojan:xhttp|vmess:ws|vmess:httpupgrade|vmess:xhttp) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+# Path for a given streamSettings JSON
+path_for() { # <streamSettings-json> <network> -> path
+    local ss="$1" net="$2"
+    case "$net" in
+        ws)          echo "$ss" | jq -r '.wsSettings.path // empty' ;;
+        httpupgrade) echo "$ss" | jq -r '.httpupgradeSettings.path // empty' ;;
+        xhttp)       echo "$ss" | jq -r '.xhttpSettings.path // empty' ;;
+    esac
+}
+
+host_for() { # <streamSettings-json> -> host
+    echo "$1" | jq -r '.wsSettings.host // .httpupgradeSettings.host // .xhttpSettings.host // empty'
 }
 
 # ─── Modes ───────────────────────────────────────────────────────────────────
+# -check / -del need the slave token; the panel masks apiToken in nodes/list,
+# so it must come from a -node spec (same name as the registered node).
+declare -A NODE_BASES=() NODE_TOKENS=()
+for spec in "${NODES[@]}"; do
+    parse_spec "$spec" || continue
+    NODE_BASES["$N_NAME"]="${N_SCHEME}://${N_ADDR}:${N_PORT}${N_BASE}"
+    NODE_TOKENS["$N_NAME"]="$N_TOKEN"
+done
+
 mode_list() {
     local out
     out=$(api GET /nodes/list) || { msg_err "nodes/list failed"; exit 1; }
@@ -154,19 +183,41 @@ mode_list() {
 }
 
 mode_del() {
-    local name id out ib_ids id2 hid
+    local name out id
     for name in "${DEL_NAMES[@]}"; do
         out=$(api GET /nodes/list)
         id=$(echo "$out" | jq -r --arg n "$name" '.obj[]? | select(.name == $n) | .id' | head -n1)
         [[ -n "$id" ]] || { msg_err "Node '$name' not found on the master."; continue; }
+
+        # Remove host overrides created for this node (incl. old-style bare groups).
+        local hids
+        hids=$(api GET /hosts/list | jq -r --arg r "3x-ui-pro node ${name} " --arg rb "3x-ui-pro node ${name}" '.obj[]? | select((.remark | startswith($r)) or .remark == $rb) | .groupId' | sort -u)
+        for hid in $hids; do
+            api POST "/hosts/del/${hid}" >/dev/null && msg_inf "  host group ${hid} removed"
+        done
+
+        # Remove the slave-side clients provisioned by this script.
+        local s_base s_tok
+        s_base="${NODE_BASES[$name]:-}"
+        s_tok="${NODE_TOKENS[$name]:-}"
+        if [[ -n "$s_tok" ]]; then
+            local cids cid
+            cids=$(slave_api "$s_base" "$s_tok" GET /clients/list | jq -r --arg p "${name}-" '.obj[]? | select(.email | startswith($p)) | .id')
+            for cid in $cids; do
+                slave_api "$s_base" "$s_tok" POST "/clients/del/${cid}" >/dev/null && msg_inf "  slave client ${cid} removed"
+            done
+        else
+            msg_inf "  no -node spec with a token for '$name' — slave-side clients were NOT removed (re-run with -node \"$name|...|TOKEN\")"
+        fi
+
+        # Node inbounds must be deleted before the node itself.
+        local ib_ids id2
         ib_ids=$(api GET /inbounds/list | jq -r --argjson nid "$id" '[.obj[]? | select(.nodeId == $nid) | .id] | join(" ")')
         for id2 in $ib_ids; do
-            for hid in $(api GET /hosts/list | jq -r --argjson iid "$id2" '.obj[]? | select(.inboundId == $iid) | .id' 2>/dev/null); do
-                api POST "/hosts/del/${hid}" >/dev/null || true
-            done
             api POST "/inbounds/del/${id2}" >/dev/null || true
         done
-        [[ -n "$ib_ids" ]] && msg_inf "Removed ${ib_ids// /,} inbound(s) (and their hosts) of node '$name'."
+        [[ -n "$ib_ids" ]] && msg_inf "Removed ${ib_ids// /,} imported inbound(s) of node '$name'."
+
         if api POST "/nodes/del/${id}" | api_ok; then
             msg_ok "Node '$name' deleted."
         else
@@ -176,166 +227,188 @@ mode_del() {
 }
 
 mode_check() {
-    local out n
+    local out
     out=$(api GET /nodes/list)
     if [[ "$(echo "$out" | jq -r '[.obj[]?] | length')" == "0" ]]; then
         msg_inf "No nodes on this master yet."
         return 0
     fi
     echo "$out" | jq -r '.obj[]? | "\(.name): \(.status) (\(.inboundCount) inbounds, \(.clientCount) clients) latency=\(.latencyMs)ms"'
-    local email missing=0
+    local name hcount
+    for name in $(echo "$out" | jq -r '.obj[]? | .name'); do
+        hcount=$(api GET /hosts/list | jq -r --arg r "3x-ui-pro node ${name} " '[.obj[]? | select(.remark | startswith($r))] | length')
+        echo "  host overrides on master for '${name}': ${hcount}"
+    done
+local email uuid ok=1
     for email in $(eternal_users_list); do
-        for n in $(echo "$out" | jq -r '.obj[]? | .name'); do
-            local nid ib_hits
-            nid=$(echo "$out" | jq -r --arg n "$n" '.obj[]? | select(.name == $n) | .id' | head -n1)
-            ib_hits=$(api GET /inbounds/list | jq -c --argjson nid "$nid" --arg e "$email" \
-                '[.obj[]? | select(.nodeId == $nid and (.settings | contains($e))) | .id] | length')
-            if [[ "$ib_hits" == "0" ]]; then
-                msg_err "  client '$email' is NOT on node '$n' (no matching inbound settings)"
-                missing=1
+        uuid=$(master_client_uuid "$email")
+        if [[ -z "$uuid" ]]; then
+            msg_err "  master client '$email' not found (uuid lookup failed)"
+            ok=0; continue
+        fi
+        for name in $(echo "$out" | jq -r '.obj[]? | .name'); do
+            local n_tok s_base
+            n_tok="${NODE_TOKENS[$name]:-}"
+            if [[ -z "$n_tok" ]]; then
+                msg_inf "  (coverage on '${name}' requires a -node spec with its token)"
+                continue
+            fi
+            s_base="${NODE_BASES[$name]:-}"
+            if slave_api "$s_base" "$n_tok" GET /inbounds/list | jq -e --arg u "$uuid" '[.obj[]? | select((.settings | tostring) | contains($u))] | length > 0' >/dev/null 2>&1; then
+                msg_ok "  uuid of '${email}' is provisioned on '${name}'"
+            else
+                msg_err "  uuid of '${email}' is NOT on '${name}'"
+                ok=0
             fi
         done
     done
-    [[ "$missing" == "0" ]] && msg_ok "All eternal users are attached to every node."
+    [[ "$ok" == "1" ]] && msg_ok "Coverage check passed."
 }
 
-# ─── Add nodes + attach users ────────────────────────────────────────────────
+# ─── Add nodes + hosts + provisioning ───────────────────────────────────────
 mode_add() {
     local spec node_id
     local -A NODE_IDS=()
-    local -A NODE_HOSTS=()
+    local -A NODE_BASES=()   # name -> slave api base url
+    local -A NODE_TOKENS=()  # name -> slave token
 
     [[ ${#NODES[@]} -gt 0 ]] || { msg_err "No -node specs given (see header)."; exit 1; }
 
+    # 1. Register nodes on the master (reuse existing ones).
     for spec in "${NODES[@]}"; do
         parse_spec "$spec" || exit 1
-        NODE_HOSTS["$N_NAME"]="$N_ADDR"
-        local existing
+        NODE_BASES["$N_NAME"]="${N_SCHEME}://${N_ADDR}:${N_PORT}${N_BASE}"
+        NODE_TOKENS["$N_NAME"]="$N_TOKEN"
+        local existing payload resp
         existing=$(api GET /nodes/list | jq -r --arg n "$N_NAME" '.obj[]? | select(.name == $n) | .id' | head -n1)
         if [[ -n "$existing" ]]; then
-            msg_inf "→ Node '$N_NAME' already exists (id=$existing) — reusing it, no duplicate created."
+            msg_inf "→ Node '$N_NAME' already exists (id=$existing) — refreshing its token."
+            payload=$(jq -nc --arg name "$N_NAME" --arg scheme "$N_SCHEME" --arg addr "$N_ADDR" \
+                --argjson port "$N_PORT" --arg base "$N_BASE" --arg tok "$N_TOKEN" \
+                --arg tls "$TLS_MODE" --arg pin "$PIN_SHA" \
+                '{name:$name, remark:"3x-ui-pro node", scheme:$scheme, address:$addr, port:($port|tonumber),
+                  basePath:$base, apiToken:$tok, enable:true, allowPrivateAddress:true,
+                  tlsVerifyMode:$tls, pinnedCertSha256:$pin}')
+            api POST "/nodes/update/${existing}" -H 'Content-Type: application/json' -d "$payload" | api_ok \
+                || msg_err "  failed to refresh token of '$N_NAME'"
             NODE_IDS["$N_NAME"]="$existing"
-            continue
-        fi
-        msg_inf "→ Adding node '$N_NAME' (${N_SCHEME}://${N_ADDR}:${N_PORT}${N_BASE})..."
-        local payload resp
-        payload=$(node_payload)
-        resp=$(api POST /nodes/test -H 'Content-Type: application/json' -d "$payload")
-        if ! echo "$resp" | api_ok; then
-            msg_err "Node '$N_NAME' unreachable: $(echo "$resp" | jq -r '.msg // "unknown error"')"
-            continue
-        fi
-        resp=$(api POST /nodes/add -H 'Content-Type: application/json' -d "$payload")
-        if echo "$resp" | api_ok; then
-            node_id=$(echo "$resp" | jq -r '.obj.id // empty')
-            [[ -n "$node_id" ]] || node_id=$(api GET /nodes/list | jq -r --arg n "$N_NAME" '.obj[]? | select(.name == $n) | .id' | head -n1)
-            NODE_IDS["$N_NAME"]="$node_id"
-            msg_ok "Node '$N_NAME' added (id=$node_id)."
         else
-            msg_err "Failed to add node '$N_NAME': $(echo "$resp" | jq -r '.msg // "unknown error"')"
+            msg_inf "→ Adding node '$N_NAME' (${N_SCHEME}://${N_ADDR}:${N_PORT}${N_BASE})..."
+            payload=$(jq -nc --arg name "$N_NAME" --arg scheme "$N_SCHEME" --arg addr "$N_ADDR" \
+                --argjson port "$N_PORT" --arg base "$N_BASE" --arg tok "$N_TOKEN" \
+                --arg tls "$TLS_MODE" --arg pin "$PIN_SHA" \
+                '{name:$name, remark:"3x-ui-pro node", scheme:$scheme, address:$addr, port:($port|tonumber),
+                  basePath:$base, apiToken:$tok, enable:true, allowPrivateAddress:true,
+                  tlsVerifyMode:$tls, pinnedCertSha256:$pin}')
+            resp=$(api POST /nodes/test -H 'Content-Type: application/json' -d "$payload")
+            if ! echo "$resp" | api_ok; then
+                msg_err "Node '$N_NAME' unreachable: $(echo "$resp" | jq -r '.msg // "unknown error"')"
+                continue
+            fi
+            resp=$(api POST /nodes/add -H 'Content-Type: application/json' -d "$payload")
+            if echo "$resp" | api_ok; then
+                node_id=$(echo "$resp" | jq -r '.obj.id // empty')
+                NODE_IDS["$N_NAME"]="$node_id"
+                msg_ok "Node '$N_NAME' added (id=$node_id)."
+            else
+                msg_err "Failed to add node '$N_NAME': $(echo "$resp" | jq -r '.msg // "unknown error"')"
+            fi
         fi
     done
 
-    # Wait for heartbeat + inbound import (up to 90s).
-    local waited=0 ok=0
-    while (( waited < 90 )); do
-        ok=1
-        for name in "${!NODE_IDS[@]}"; do
-            local nid ib_count
-            nid="${NODE_IDS[$name]}"
-            ib_count=$(api GET /inbounds/list | jq -r --argjson nid "$nid" '[.obj[]? | select(.nodeId == $nid)] | length')
-            [[ "$ib_count" -gt 0 ]] || ok=0
-        done
-        [[ "$ok" == "1" ]] && break
-        sleep 5; waited=$((waited + 5))
-    done
-    [[ "$ok" == "1" ]] || { msg_err "Node inbounds were not imported within 90s — check nodes/list and the panel log."; exit 1; }
-    msg_ok "Node inbounds are imported into the master."
+    [[ ${#NODE_IDS[@]} -gt 0 ]] || { msg_err "No nodes were registered."; exit 1; }
 
-    # Host overrides: node TCP inbounds listen on 127.0.0.1 behind the node's
-    # nginx SNI router, so their share links must advertise the node's :443.
-    # REALITY hosts keep security "same" (SNI/keys come from the inbound);
-    # the TLS-fronted ones (ws/grpc/httpupgrade/xhttp/trojan/vmess) get "tls".
-    # Own-port protocols (kcp/tuic/hysteria/shadowsocks) keep their ports and
-    # need no host; wireguard/amneziawg/mtproto are skipped entirely.
+    # 2. Master local inbounds (nodeId empty) of supported transports.
+    local master_ibs
+    master_ibs=$(api GET /inbounds/list | jq -c '[.obj[]? | select((.nodeId // null) == null)]')
+
     local name
     for name in "${!NODE_IDS[@]}"; do
-        local nid ibs reality_ids tls_ids ib proto net sec id3
-        nid="${NODE_IDS[$name]}"
-        ibs=$(api GET /inbounds/list | jq -c --argjson nid "$nid" '[.obj[]? | select(.nodeId == $nid)]')
-        reality_ids=""; tls_ids=""
+        local s_base s_tok
+        s_base="${NODE_BASES[$name]}"
+        s_tok="${NODE_TOKENS[$name]}"
+
+        # 2a. Slave inbounds of supported transports (id + path + host).
+        local slave_ibs
+        slave_ibs=$(slave_api "$s_base" "$s_tok" GET /inbounds/list | jq -c '.obj // []')
+
+        # 2b. Host overrides on the master for every supported master inbound.
+        local n_host ok=1
+        n_host=$(echo "$s_base" | sed -E 's|^https?://([^:/]+).*|\1|')
+        local ib
         while IFS= read -r ib; do
             [[ -z "$ib" ]] && continue
+            local proto net path host remark ids
             proto=$(echo "$ib" | jq -r '.protocol')
             net=$(echo "$ib" | jq -r '.streamSettings.network // "tcp"')
-            sec=$(echo "$ib" | jq -r '.streamSettings.security // "none"')
-            case "$proto" in
-                wireguard|amneziawg|mtproto|tuic|hysteria|shadowsocks) continue ;;
-            esac
-            [[ "$net" == "kcp" ]] && continue
-            id3=$(echo "$ib" | jq -r '.id')
-            if [[ "$sec" == "reality" ]]; then
-                reality_ids="${reality_ids},${id3}"
-            else
-                tls_ids="${tls_ids},${id3}"
+            supported_pair "$proto" "$net" || continue
+            path=$(path_for "$(echo "$ib" | jq -c '.streamSettings')" "$net")
+            host=$(host_for "$(echo "$ib" | jq -c '.streamSettings')")
+            ids=$(echo "$ib" | jq -r '.id')
+            # find the slave counterpart (same protocol+network) and take its path/host
+            local sib sp sh
+            sib=$(echo "$slave_ibs" | jq -c --arg p "$proto" --arg n "$net" '[.[]? | select(.protocol==$p and (.streamSettings.network // "tcp")==$n)] | .[0] // empty')
+            if [[ -n "$sib" ]]; then
+                sp=$(path_for "$(echo "$sib" | jq -c '.streamSettings')" "$net")
+                sh=$(host_for "$(echo "$sib" | jq -c '.streamSettings')")
+                [[ -n "$sp" ]] && path="$sp"
+                [[ -n "$sh" ]] && host="$sh"
             fi
-        done <<< "$(echo "$ibs" | jq -c '.[]')"
+            remark="3x-ui-pro node ${name} ${proto}-${net}"
+            local payload resp2 gid
+            gid=$(api GET /hosts/list | jq -r --arg r "$remark" '.obj[]? | select(.remark == $r) | .groupId' | head -n1)
+            payload=$(jq -nc --arg r "$remark" --arg h "$n_host" --argjson iid "$ids" \
+                --arg p "${path:-}" --arg hh "${host:-}" \
+                '{remark:$r, inboundIds:[$iid], hosts:[$h], port:443, security:"tls",
+                  sni:"", hostHeader:$hh, path:$p, sortOrder:1, fingerprint:"firefox",
+                  allowInsecure:false, pinnedPeerCertSha256:[], alpn:[]}')
+            if [[ -n "$gid" ]]; then
+                resp2=$(api POST "/hosts/update/${gid}" -H 'Content-Type: application/json' -d "$payload")
+            else
+                resp2=$(api POST /hosts/add -H 'Content-Type: application/json' -d "$payload")
+            fi
+            echo "$resp2" | api_ok || { msg_err "  host override failed for master inbound ${ids} (${proto}/${net})"; ok=0; }
+        done <<< "$(echo "$master_ibs" | jq -c '.[]')"
+        [[ "$ok" == "1" ]] && msg_ok "Host overrides for '${name}' are in place (${n_host}:443)."
 
-        add_hosts() { # <security> <space-separated inbound ids>
-            local sec2="$1" ids2="$2" payload
-            [[ -n "$ids2" ]] || return 0
-            payload=$(jq -nc --arg r "3x-ui-pro node ${name}" --arg a "${NODE_HOSTS[$name]}" \
-                --arg s "$sec2" \
-                --argjson ids "$(echo "$ids2" | tr ',' '\n' | sed '/^$/d' | jq -R 'tonumber' | jq -s -c '.')" \
-                '{inboundIds:$ids, hosts:[$a], remark:$r, sortOrder:0, security:$s, sni:"",
-                  fingerprint:"firefox", allowInsecure:false, pinnedPeerCertSha256:[], alpn:[]}')
-            api POST /hosts/add -H 'Content-Type: application/json' -d "$payload" | api_ok \
-                || msg_err "  failed to add host (security=$sec2) for node '$name'"
-        }
-        add_hosts "same" "$reality_ids"
-        add_hosts "tls" "$tls_ids"
-        msg_ok "Host overrides for node '$name' added (TCP inbounds advertised via ${NODE_HOSTS[$name]}:443)."
-    done
-
-    # Attach every eternal user to the node inbounds (REALITY gets the flow).
-    local email attached=0
-    for email in $(eternal_users_list); do
-        for name in "${!NODE_IDS[@]}"; do
-            local nid ibs id2 flow reality_ids other_ids ib
-            nid="${NODE_IDS[$name]}"
-            ibs=$(api GET /inbounds/list | jq -c --argjson nid "$nid" '[.obj[]? | select(.nodeId == $nid)]')
-            reality_ids=""; other_ids=""
-            while IFS= read -r ib; do
-                [[ -z "$ib" ]] && continue
-                skip_protocol "$(echo "$ib" | jq -r '.protocol')" && continue
-                id2=$(echo "$ib" | jq -r '.id')
-                flow=$(flow_for_inbound "$ib")
-                if [[ "$flow" == "xtls-rprx-vision" ]]; then
-                    reality_ids="${reality_ids},${id2}"
-                else
-                    other_ids="${other_ids},${id2}"
-                fi
-            done <<< "$(echo "$ibs" | jq -c '.[]')"
-
-            attach_ids() { # <flow> <space-separated inbound ids>
-                local f="$1" ids="$2" payload sub
-                [[ -n "$ids" ]] || return 0
-                sub="${SUBID_BASE}-${email##*-}"
-                payload=$(jq -nc --arg e "$email" --arg sub "$sub" --arg flow "$f" \
-                    --argjson ids "$(echo "$ids" | tr ',' '\n' | sed '/^$/d' | jq -R 'tonumber' | jq -s -c '.')" \
-                    '{client:{email:$e, subId:$sub, totalGB:0, expiryTime:0, enable:true, limitIp:0, flow:$flow, comment:"3x-ui-pro multi-node"}, inboundIds:$ids}')
-                api POST /clients/add -H 'Content-Type: application/json' -d "$payload" | api_ok \
-                    || msg_err "  failed to attach '$email' (flow='$f')"
-            }
-            attach_ids "xtls-rprx-vision" "$reality_ids"
-            attach_ids "" "$other_ids"
-            attached=1
+        # 2c. Provision master clients onto the slave (same UUIDs, unique emails).
+        local email uuid ok2=1
+        for email in $(eternal_users_list); do
+            uuid=$(master_client_uuid "$email")
+            [[ -n "$uuid" ]] || { msg_err "  uuid for '${email}' not found"; ok2=0; continue; }
+            local s_email
+            s_email="${name}-${email}"
+            # attach to the slave's supported inbounds (ws/httpupgrade/xhttp)
+            local groups
+            groups=$(echo "$slave_ibs" | jq -c '[.[]? | select((.streamSettings.network // "tcp")=="ws" or (.streamSettings.network // "tcp")=="httpupgrade" or (.streamSettings.network // "tcp")=="xhttp") | .id]')
+            if [[ "$groups" == "[]" ]]; then
+                msg_err "  slave has no supported inbounds for '${email}'"
+                ok2=0; continue
+            fi
+            # Idempotency with coverage: an existing slave client is reused only
+            # if the uuid is already on every supported inbound, otherwise it is
+            # recreated with the full set (avoids stale partial provisioning).
+            local want covered
+            want=$(echo "$groups" | jq 'length')
+            covered=$(echo "$slave_ibs" | jq -c --arg u "$uuid" '[.[]? | select((.streamSettings.network // "tcp")=="ws" or (.streamSettings.network // "tcp")=="httpupgrade" or (.streamSettings.network // "tcp")=="xhttp") | select((.settings | tostring) | contains($u))] | length')
+            if [[ "$covered" == "$want" ]]; then
+                continue
+            fi
+            local cid
+            cid=$(slave_api "$s_base" "$s_tok" GET /clients/list | jq -r --arg e "$s_email" '.obj[]? | select(.email == $e) | .id' | head -n1)
+            [[ -n "$cid" ]] && slave_api "$s_base" "$s_tok" POST "/clients/del/${cid}" >/dev/null 2>&1 || true
+            local payload3
+            payload3=$(jq -nc --arg u "$uuid" --arg e "$s_email" --argjson ids "$groups" \
+                '{client:{id:$u, email:$e, subId:$e, totalGB:0, expiryTime:0, enable:true,
+                  limitIp:0, flow:"", comment:"3x-ui-pro multi-node"}, inboundIds:$ids}')
+            slave_api "$s_base" "$s_tok" POST /clients/add -H 'Content-Type: application/json' -d "$payload3" | api_ok \
+                || { msg_err "  failed to provision '${email}' on '${name}'"; ok2=0; }
         done
+        [[ "$ok2" == "1" ]] && msg_ok "Master clients provisioned on '${name}' (same UUIDs)."
     done
-    [[ "$attached" == "1" ]] && msg_ok "Eternal users attached to node inbounds — subscription now covers every node."
-    local first
-    first=$(eternal_users_list | head -n1)
-    msg_inf "Subscription (unchanged URL, now multi-node): https://${DOMAIN}/${SUB_PATH}/${SUBID_BASE}-1"
+
+    msg_inf "Subscription (unchanged URL): https://${DOMAIN}/${SUB_PATH}/${SUBID_BASE}-1"
+    msg_inf "Each supported inbound now also emits a profile pointing at every node (:443)."
 }
 
 case "$MODE" in
