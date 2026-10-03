@@ -168,6 +168,34 @@ subscription** to get the full profile.
 
 ---
 
+## Multi-node: several servers in one subscription
+
+3x-ui can combine multiple panels: the master manages slave nodes through their API, and a single subscription serves connections to every server. The `x-ui-node.sh` script (run **on the master**) does this automatically:
+
+```bash
+wget -qO x-ui-node.sh https://raw.githubusercontent.com/tempovichtemp66-byte/3x-ui-pro/main/x-ui-node.sh
+
+# slave node token (run ONCE on the slave):
+#   /usr/local/x-ui/x-ui setting -getApiToken true
+
+bash x-ui-node.sh -node "USA|https|us.example.com|443|/AbCdEf/|TOKEN" \
+                  -node "EU|https|eu.example.com|443|/GhIjKl/|TOKEN"
+```
+
+What happens: nodes are added to the master (`POST /panel/api/nodes/add`), their inbounds are imported, and every eternal master user is attached to the node inbounds — so the existing subscription `https://<master>/<sub-path>/<subid>` starts emitting profiles pointing at the node addresses. No clients need to be created on the slaves; the master provisions them.
+
+Other modes:
+
+```bash
+bash x-ui-node.sh -list                    # list nodes
+bash x-ui-node.sh -check                   # health + client coverage
+bash x-ui-node.sh -del "USA"               # remove a node and its inbounds
+bash x-ui-node.sh -users 3                 # attach only the first 3 users
+bash x-ui-node.sh -tls skip -node "..."    # node with a self-signed cert
+```
+
+⚠️ `x-ui setting -getApiToken true` **rotates the token on every call**: fetch it on the slave once and pass it to the script right away; do not re-run the command afterwards or the master will start getting 401s (fix: `-del` + `-node` again with a fresh token). Note: after adding a node, the panel migrates the master's own inbounds to the multi-node layout (tags `in-<port>-<protocol>`) — that is expected behaviour, subscriptions and clients keep working.
+
 ## Command-line options
 
 | Option | Description |
