@@ -311,9 +311,9 @@ mode_add() {
                 id2=$(echo "$ib" | jq -r '.id')
                 flow=$(flow_for_inbound "$ib")
                 if [[ "$flow" == "xtls-rprx-vision" ]]; then
-                    reality_ids="${reality_ids} ${id2}"
+                    reality_ids="${reality_ids},${id2}"
                 else
-                    other_ids="${other_ids} ${id2}"
+                    other_ids="${other_ids},${id2}"
                 fi
             done <<< "$(echo "$ibs" | jq -c '.[]')"
 
