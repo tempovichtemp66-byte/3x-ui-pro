@@ -497,7 +497,7 @@ mode_slave() {
     local spec="${name}|https|${address}|${mport}|${path}|${API_TOKEN}"
     msg_inf "Скопируйте команду ниже и выполните её на MASTER-ноде:"
     echo
-    echo "  bash x-ui-node.sh${hint} -node \"${spec}\""
+    echo "  bash <(curl -fsSL https://raw.githubusercontent.com/tempovichtemp66-byte/3x-ui-pro/main/x-ui-node.sh)${hint} -node \"${spec}\""
     echo
     msg_inf "Проверка на мастере: bash x-ui-node.sh -list   /   bash x-ui-node.sh -check"
     msg_err "ВАЖНО: токен ротируется при каждом запуске -slave — прошлая команда перестанет работать!"
