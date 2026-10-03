@@ -190,7 +190,7 @@ bash <(curl -fsSL .../x-ui-node.sh) "Москва|https|msk.example.com|443|/AbC
 echo "Москва|https|msk.example.com|443|/AbCdEf/|TOKEN" | bash <(curl -fsSL .../x-ui-node.sh)
 ```
 
-Механика: нода регистрируется на мастере (мониторинг/статус), для каждого поддерживаемого инбаунда мастера создаётся **host-оверрайд** на адрес slave (`:443`, путь slave), а uuid вечных пользователей мастера **провижинятся на slave** — подписка `https://<мастер>/<sub-path>/<subid>` начинает отдавать дополнительные профили с адресами нод. Работает для `vless/trojan/vmess` поверх `ws/httpupgrade/xhttp`. Не покрываются (технически не склеиваются): REALITY (ключи сервера), gRPC (serviceName), kcp/tuic/hysteria/shadowsocks (своя авторизация), wireguard/amneziawg, mtproto.
+Механика: нода регистрируется на мастере (мониторинг/статус), для каждого поддерживаемого инбаунда мастера создаётся **host-оверрайд** на адрес slave (`:443`, путь slave), а uuid вечных пользователей мастера **провижинятся на slave** — подписка `https://<мастер>/<sub-path>/<subid>` начинает отдавать дополнительные профили с адресами нод. Покрытие: `vless/trojan/vmess` поверх `ws/httpupgrade/xhttp` и `tcp+REALITY` (ключи REALITY slave синхронизируются с мастером), плюс `hysteria2`, `tuic` и `shadowsocks-2022` (клиенты/ключи провижинятся на slave). Не покрываются: gRPC (nginx-роутинг по портам + serviceName), kcp (ключи VLESS Encryption), wireguard/amneziawg (свои пары ключей), mtproto (отдельный демон mtg).
 
 Прочее:
 

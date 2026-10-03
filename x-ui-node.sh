@@ -6,18 +6,25 @@
 #   bash x-ui-node.sh -node "USA|https|us.example.com|443|/AbCdEf/|TOKEN"
 #
 # What it does (verified against 3x-ui v3.8.5):
-#   1. Registers the slave panel as a node on the master (monitoring/health).
-#   2. For every matching inbound of the master (vless/trojan/vmess over
-#      ws/httpupgrade/xhttp) creates a *host override* pointing at the
-#      slave's :443 entry with the slave's path — the master's subscription
-#      then emits an extra profile per slave for the same client credentials.
-#   3. Provisions the master's eternal clients (same UUIDs) onto the slave,
-#      so the slave's xray accepts those connections.
-#
-# Protocols covered: vless/trojan/vmess over ws, httpupgrade, xhttp.
-# Skipped (cannot be bridged this way): REALITY (server keys), gRPC
-# (serviceName is not overridable), kcp/tuic/hysteria/shadowsocks (own
-# auth/keys), wireguard/amneziawg (per-server peers), mtproto (separate mtg).
+#   1. Registers the slave panel as a node on the master (monitoring/health,
+#      inboundSyncMode=selected so the master never touches the slave's
+#      inbounds — the default 'all' import made its reconcile DELETE them).
+#   2. For every supported master inbound creates a *host override* pointing
+#      at the slave (address, port, path, SNI handling) and syncs whatever
+#      credential is server-bound so the slave accepts the master's clients:
+#        vless/trojan/vmess over ws, httpupgrade, xhttp  -> slave path
+#        vless/trojan/vmess over tcp+REALITY             -> slave gets the
+#              master's REALITY private key + shortIds, clients get the flow
+#        hysteria2                                        -> clients (auth+password)
+#              injected via inbounds/update, host with allowInsecure
+#        tuic                                             -> clients injected,
+#              host with the slave's port + allowInsecure
+#        shadowsocks-2022                                 -> server key synced,
+#              clients injected, host with the slave's port
+#   The master's subscription then emits an extra "|SLAVE"-marked profile per
+#   node. Skipped (cannot be bridged cleanly): gRPC (port-based nginx routing
+#   + serviceName), kcp (VLESS Encryption keys), wireguard/amneziawg (peers),
+#   mtproto (separate mtg daemon).
 #
 # Node spec (repeatable):
 #   name|scheme|address|port|basePath|apiToken
@@ -232,6 +239,15 @@ mode_del() {
             for cid in $cids; do
                 slave_api "$s_base" "$s_tok" POST "/clients/del/${cid}" >/dev/null && msg_inf "  slave client ${cid} removed"
             done
+            # strip injected clients (hysteria/tuic/ss) from the slave's inbound settings
+            local ibs2 sib2
+            ibs2=$(slave_api "$s_base" "$s_tok" GET /inbounds/list | jq -c '[.obj[]? | select(.protocol=="hysteria" or .protocol=="tuic" or .protocol=="shadowsocks") | .id]')
+            for sib2 in $(echo "$ibs2" | jq -r '.[]?'); do
+                slave_api "$s_base" "$s_tok" GET "/inbounds/get/${sib2}" \
+                    | jq -c --arg p "${name}-" '.obj | .settings.clients = [.settings.clients[]? | select((.email | startswith($p)) | not)]' \
+                    | slave_api "$s_base" "$s_tok" POST "/inbounds/update/${sib2}" -H 'Content-Type: application/json' -d @- \
+                    | api_ok && msg_inf "  injected clients stripped from slave inbound ${sib2}"
+            done
         else
             msg_inf "  no -node spec with a token for '$name' — slave-side clients were NOT removed (re-run with -node \"$name|...|TOKEN\")"
         fi
@@ -294,6 +310,24 @@ local email uuid ok=1
 }
 
 # ─── Add nodes + hosts + provisioning ───────────────────────────────────────
+# Inject the master's clients into a slave inbound's settings (hysteria/tuic/ss)
+# via inbounds/update — the panel preserves auth/password this way.
+inject_clients() { # <slave-inbound-id> <master-inbound-json> <node-name>
+    local sid="$1" mib="$2" nname="$3" payload
+    [[ -n "$sid" && "$sid" != "null" ]] || return 1
+    payload=$(echo "$mib" | jq -c --arg n "$nname" '
+        {clients: [.settings.clients[]? | select(.email | test("^eternal-[0-9]+$"))
+          | {email: ($n + "-" + .email), id: .id, password: (.password // ""),
+             auth: (.auth // empty), subId: ($n + "-" + .email),
+             totalGB: 0, expiryTime: 0, enable: true, limitIp: 0,
+             flow: (.flow // ""), comment: "3x-ui-pro multi-node"}]}' 2>/dev/null)
+    [[ -n "$payload" ]] || return 1
+    slave_api "$s_base" "$s_tok" GET "/inbounds/get/${sid}" \
+        | jq -c --argjson cl "$payload" '.obj | .settings.clients = (($cl.clients) + ([.settings.clients[]? | select(.email | test("^eternal-[0-9]+$") | not)]))' \
+        | slave_api "$s_base" "$s_tok" POST "/inbounds/update/${sid}" -H 'Content-Type: application/json' -d @- \
+        | api_ok || { msg_err "  failed to inject clients into slave inbound ${sid}"; return 1; }
+}
+
 mode_add() {
     local spec node_id
     local -A NODE_IDS=()
@@ -374,66 +408,105 @@ mode_add() {
         local slave_ibs
         slave_ibs=$(slave_api "$s_base" "$s_tok" GET /inbounds/list | jq -c '.obj // []')
 
-        # 2b. Host overrides on the master for every supported master inbound.
-        local n_host ok=1
+        # 2b. Pair every supported master inbound with its slave counterpart:
+        #     host override on the master + credential sync on the slave.
+        local n_host ok=1 node_guid
         n_host=$(echo "$s_base" | sed -E 's|^https?://([^:/]+).*|\1|')
+        node_guid=$(api GET /nodes/list | jq -r --arg n "$name" '.obj[]? | select(.name == $n) | .guid' | head -n1)
+        local uuid_inbounds="" reality_inbound=""
         local ib
         while IFS= read -r ib; do
             [[ -z "$ib" ]] && continue
-            local proto net path host remark ids
+            local proto net sec ids
             proto=$(echo "$ib" | jq -r '.protocol')
             net=$(echo "$ib" | jq -r '.streamSettings.network // "tcp"')
-            supported_pair "$proto" "$net" || continue
-            path=$(path_for "$(echo "$ib" | jq -c '.streamSettings')" "$net")
-            host=$(host_for "$(echo "$ib" | jq -c '.streamSettings')")
+            sec=$(echo "$ib" | jq -r '.streamSettings.security // "none"')
             ids=$(echo "$ib" | jq -r '.id')
-            # find the slave counterpart (same protocol+network) and take its path/host
-            local sib sp sh
-            sib=$(echo "$slave_ibs" | jq -c --arg p "$proto" --arg n "$net" '[.[]? | select(.protocol==$p and (.streamSettings.network // "tcp")==$n)] | .[0] // empty')
-            if [[ -n "$sib" ]]; then
-                sp=$(path_for "$(echo "$sib" | jq -c '.streamSettings')" "$net")
-                sh=$(host_for "$(echo "$sib" | jq -c '.streamSettings')")
-                [[ -n "$sp" ]] && path="$sp"
-                [[ -n "$sh" ]] && host="$sh"
-            fi
-            remark="SLAVE"
-            local node_guid payload resp2 gid
-            node_guid=$(api GET /nodes/list | jq -r --arg n "$name" '.obj[]? | select(.name == $n) | .guid' | head -n1)
-            payload=$(jq -nc --arg r "$remark" --arg h "$n_host" --argjson iid "$ids" \
-                --arg p "${path:-}" --arg hh "${host:-}" --arg ng "$node_guid" \
-                '{remark:$r, inboundIds:[$iid], hosts:[$h], port:443, security:"tls",
+            local sib
+            sib=$(echo "$slave_ibs" | jq -c --arg p "$proto" --arg n "$net" --arg s "$sec" \
+                '[.[]? | select(.protocol==$p and (.streamSettings.network // "tcp")==$n and (.streamSettings.security // "none")==$s)] | .[0] // empty')
+            local port=443 ai=false security="tls" path="" hh=""
+            local sib_id
+            sib_id=$(echo "$sib" | jq -r '.id // empty')
+            case "${proto}:${net}:${sec}" in
+                vless:tcp:reality)
+                    # sync the slave's REALITY keys + shortIds to the master's
+                    local spk sshort
+                    spk=$(echo "$ib" | jq -r '.streamSettings.realitySettings.privateKey // empty')
+                    sshort=$(echo "$ib" | jq -c '.streamSettings.realitySettings.shortIds // []')
+                    if [[ -n "$sib_id" && -n "$spk" ]]; then
+                        slave_api "$s_base" "$s_tok" GET "/inbounds/get/${sib_id}" \
+                            | jq -c --arg pk "$spk" --argjson ss "$sshort" \
+                                '.obj | .streamSettings.realitySettings.privateKey = $pk | .streamSettings.realitySettings.shortIds = $ss' \
+                            | slave_api "$s_base" "$s_tok" POST "/inbounds/update/${sib_id}" -H 'Content-Type: application/json' -d @- \
+                            | api_ok || msg_err "  REALITY key sync failed for ${proto}"
+                    fi
+                    security="same"; port=443
+                    reality_inbound="$sib_id"
+                    ;;
+                *:ws:*|*:httpupgrade:*|*:xhttp:*)
+                    local sp sh
+                    sp=$(path_for "$(echo "$sib" | jq -c '.streamSettings')" "$net")
+                    sh=$(host_for "$(echo "$sib" | jq -c '.streamSettings')")
+                    [[ -n "$sp" ]] && path="$sp"
+                    [[ -n "$sh" ]] && hh="$sh"
+                    security="tls"; port=443
+                    uuid_inbounds="${uuid_inbounds} ${sib_id}"
+                    ;;
+                hysteria:*:*)
+                    inject_clients "$sib_id" "$ib" "$name"
+                    security="same"; port=443; ai=true
+                    ;;
+                tuic:*:*)
+                    inject_clients "$sib_id" "$ib" "$name"
+                    security="same"; port=$(echo "$sib" | jq -r '.port // 443'); ai=true
+                    ;;
+                shadowsocks:*:*)
+                    local m_key
+                    m_key=$(echo "$ib" | jq -r '.settings.password // empty')
+                    if [[ -n "$sib_id" && -n "$m_key" ]]; then
+                        slave_api "$s_base" "$s_tok" GET "/inbounds/get/${sib_id}" \
+                            | jq -c --arg k "$m_key" '.obj | .settings.password = $k' \
+                            | slave_api "$s_base" "$s_tok" POST "/inbounds/update/${sib_id}" -H 'Content-Type: application/json' -d @- \
+                            | api_ok || msg_err "  SS server key sync failed"
+                    fi
+                    inject_clients "$sib_id" "$ib" "$name"
+                    security="same"; port=$(echo "$sib" | jq -r '.port // 443')
+                    ;;
+                *) continue ;;
+            esac
+            # host override on the master for this inbound
+            local payload2 resp2 gid2
+            payload2=$(jq -nc --arg h "$n_host" --argjson iid "$ids" \
+                --arg p "${path:-}" --arg hh "${hh:-}" --arg ng "$node_guid" \
+                --arg sec "$security" --argjson prt "$port" --argjson ai "$ai" \
+                '{remark:"SLAVE", inboundIds:[$iid], hosts:[$h], port:$prt, security:$sec,
                   sni:"", hostHeader:$hh, path:$p, sortOrder:1, fingerprint:"firefox",
-                  allowInsecure:false, pinnedPeerCertSha256:[], alpn:[], nodeGuids:[$ng]}')
-            gid=$(api GET /hosts/list | jq -r --arg g "$node_guid" --argjson iid "$ids" '[.obj[]? | select(((.nodeGuids // []) | index($g)) != null and ((.inboundIds // []) | index($iid)) != null) | .groupId] | .[0] // empty' | head -n1)
-            if [[ -n "$gid" ]]; then
-                resp2=$(api POST "/hosts/update/${gid}" -H 'Content-Type: application/json' -d "$payload")
+                  allowInsecure:$ai, pinnedPeerCertSha256:[], alpn:[], nodeGuids:[$ng]}')
+            gid2=$(api GET /hosts/list | jq -r --arg g "$node_guid" --argjson iid "$ids" '[.obj[]? | select(((.nodeGuids // []) | index($g)) != null and ((.inboundIds // []) | index($iid)) != null) | .groupId] | .[0] // empty' | head -n1)
+            if [[ -n "$gid2" ]]; then
+                resp2=$(api POST "/hosts/update/${gid2}" -H 'Content-Type: application/json' -d "$payload2")
             else
-                resp2=$(api POST /hosts/add -H 'Content-Type: application/json' -d "$payload")
+                resp2=$(api POST /hosts/add -H 'Content-Type: application/json' -d "$payload2")
             fi
-            echo "$resp2" | api_ok || { msg_err "  host override failed for master inbound ${ids} (${proto}/${net})"; ok=0; }
+            echo "$resp2" | api_ok || { msg_err "  host override failed for master inbound ${ids} (${proto}/${net}/${sec})"; ok=0; }
         done <<< "$(echo "$master_ibs" | jq -c '.[]')"
-        [[ "$ok" == "1" ]] && msg_ok "Host overrides for '${name}' are in place (${n_host}:443)."
+        [[ "$ok" == "1" ]] && msg_ok "Host overrides + credential sync for '${name}' are in place (${n_host}:443)."
 
-        # 2c. Provision master clients onto the slave (same UUIDs, unique emails).
+        # 2c. Provision the master's uuid-based clients onto the slave
+        #     (ws/httpupgrade/xhttp inbounds + the REALITY inbound).
         local email uuid ok2=1
         for email in $(eternal_users_list); do
             uuid=$(master_client_uuid "$email")
             [[ -n "$uuid" ]] || { msg_err "  uuid for '${email}' not found"; ok2=0; continue; }
-            local s_email
+            local s_email groups want covered
             s_email="${name}-${email}"
-            # attach to the slave's supported inbounds (ws/httpupgrade/xhttp)
-            local groups
             groups=$(echo "$slave_ibs" | jq -c '[.[]? | select((.streamSettings.network // "tcp")=="ws" or (.streamSettings.network // "tcp")=="httpupgrade" or (.streamSettings.network // "tcp")=="xhttp") | .id]')
-            if [[ "$groups" == "[]" ]]; then
-                msg_err "  slave has no supported inbounds for '${email}'"
-                ok2=0; continue
-            fi
-            # Idempotency with coverage: an existing slave client is reused only
-            # if the uuid is already on every supported inbound, otherwise it is
-            # recreated with the full set (avoids stale partial provisioning).
-            local want covered
             want=$(echo "$groups" | jq 'length')
+            [[ -n "$reality_inbound" && "$reality_inbound" != "null" ]] && want=$((want + 1))
             covered=$(echo "$slave_ibs" | jq -c --arg u "$uuid" '[.[]? | select((.streamSettings.network // "tcp")=="ws" or (.streamSettings.network // "tcp")=="httpupgrade" or (.streamSettings.network // "tcp")=="xhttp") | select((.settings | tostring) | contains($u))] | length')
+            [[ -n "$reality_inbound" && "$reality_inbound" != "null" ]] \
+                && covered=$((covered + $(slave_api "$s_base" "$s_tok" GET "/inbounds/get/${reality_inbound}" | jq -r --arg u "$uuid" '[.obj.settings.clients[]? | select(.id == $u)] | length' 2>/dev/null | head -n1)))
             if [[ "$covered" == "$want" ]]; then
                 continue
             fi
@@ -446,6 +519,13 @@ mode_add() {
                   limitIp:0, flow:"", comment:"3x-ui-pro multi-node"}, inboundIds:$ids}')
             slave_api "$s_base" "$s_tok" POST /clients/add -H 'Content-Type: application/json' -d "$payload3" | api_ok \
                 || { msg_err "  failed to provision '${email}' on '${name}'"; ok2=0; }
+            if [[ -n "$reality_inbound" && "$reality_inbound" != "null" ]]; then
+                payload3=$(jq -nc --arg u "$uuid" --arg e "$s_email" --argjson rid "$reality_inbound" \
+                    '{client:{id:$u, email:$e, subId:$e, totalGB:0, expiryTime:0, enable:true,
+                      limitIp:0, flow:"xtls-rprx-vision", comment:"3x-ui-pro multi-node"}, inboundIds:[$rid]}')
+                slave_api "$s_base" "$s_tok" POST /clients/add -H 'Content-Type: application/json' -d "$payload3" | api_ok \
+                    || msg_err "  failed to provision '${email}' (REALITY)"
+            fi
         done
         [[ "$ok2" == "1" ]] && msg_ok "Master clients provisioned on '${name}' (same UUIDs)."
     done

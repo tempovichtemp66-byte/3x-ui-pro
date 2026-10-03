@@ -190,7 +190,7 @@ bash <(curl -fsSL .../x-ui-node.sh) "Moscow|https|msk.example.com|443|/AbCdEf/|T
 echo "Moscow|https|msk.example.com|443|/AbCdEf/|TOKEN" | bash <(curl -fsSL .../x-ui-node.sh)
 ```
 
-Mechanics: the node is registered on the master (monitoring/status), every supported master inbound gets a **host override** pointing at the slave (`:443`, slave's path), and the master's eternal-user UUIDs are **provisioned onto the slave** — the subscription `https://<master>/<sub-path>/<subid>` then emits extra profiles pointing at the node addresses. Works for `vless/trojan/vmess` over `ws/httpupgrade/xhttp`. Not covered (cannot be bridged this way): REALITY (server keys), gRPC (serviceName), kcp/tuic/hysteria/shadowsocks (own auth), wireguard/amneziawg, mtproto.
+Mechanics: the node is registered on the master (monitoring/status), every supported master inbound gets a **host override** pointing at the slave (`:443`, slave's path), and the master's eternal-user UUIDs are **provisioned onto the slave** — the subscription `https://<master>/<sub-path>/<subid>` then emits extra profiles pointing at the node addresses. Coverage: `vless/trojan/vmess` over `ws/httpupgrade/xhttp` and `tcp+REALITY` (the slave's REALITY keys are synced to the master's), plus `hysteria2`, `tuic` and `shadowsocks-2022` (clients/keys are provisioned onto the slave). Not covered: gRPC (port-based nginx routing + serviceName), kcp (VLESS Encryption keys), wireguard/amneziawg (per-server keypairs), mtproto (separate mtg daemon).
 
 Other modes:
 
