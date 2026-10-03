@@ -288,7 +288,7 @@ save_panel_readme() {
     xray_ver=$("$(xray_bin_path)" version 2>/dev/null | awk 'NR==1 {print $2}')
     [[ -n "$MTPROTO_ID" ]] && mt_note=", mtproto" || mt_note=""
     {
-        echo "# 3x-ui-pro — доступы и подписки${LABEL_SUFFIX}"
+        echo "# 3x-ui-pro — доступы и подписки"
         echo
         echo "Создано: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
         echo
@@ -1185,7 +1185,7 @@ install_inbounds() {
     cat > "$f" <<EOF
 {
   "enable": true,
-  "remark": "⚡ reality${LABEL_SUFFIX}",
+  "remark": "⚡ reality",
   "listen": "127.0.0.1",
   "port": ${reality_port},
   "protocol": "vless",
@@ -1230,7 +1230,7 @@ EOF
     cat > "$f" <<EOF
 {
   "enable": true,
-  "remark": "⚡ ws${LABEL_SUFFIX}",
+  "remark": "⚡ ws",
   "listen": "127.0.0.1",
   "port": ${ws_port},
   "protocol": "vless",
@@ -1257,7 +1257,7 @@ EOF
     cat > "$f" <<EOF
 {
   "enable": true,
-  "remark": "⚡ grpc${LABEL_SUFFIX}",
+  "remark": "⚡ grpc",
   "listen": "127.0.0.1",
   "port": ${grpc_port},
   "protocol": "vless",
@@ -1283,7 +1283,7 @@ EOF
     cat > "$f" <<EOF
 {
   "enable": true,
-  "remark": "⚡ httpupgrade${LABEL_SUFFIX}",
+  "remark": "⚡ httpupgrade",
   "listen": "127.0.0.1",
   "port": ${httpupgrade_port},
   "protocol": "vless",
@@ -1310,7 +1310,7 @@ EOF
     cat > "$f" <<EOF
 {
   "enable": true,
-  "remark": "⚡ xhttp${LABEL_SUFFIX}",
+  "remark": "⚡ xhttp",
   "listen": "127.0.0.1",
   "port": ${xhttp_port},
   "protocol": "vless",
@@ -1349,7 +1349,7 @@ EOF
     cat > "$f" <<EOF
 {
   "enable": true,
-  "remark": "⚡ kcp${LABEL_SUFFIX}",
+  "remark": "⚡ kcp",
   "listen": "",
   "port": ${kcp_port},
   "protocol": "vless",
@@ -1378,7 +1378,7 @@ EOF
     cat > "$f" <<EOF
 {
   "enable": true,
-  "remark": "⚡ trojan-ws${LABEL_SUFFIX}",
+  "remark": "⚡ trojan-ws",
   "listen": "127.0.0.1",
   "port": ${trojan_ws_port},
   "protocol": "trojan",
@@ -1405,7 +1405,7 @@ EOF
     cat > "$f" <<EOF
 {
   "enable": true,
-  "remark": "⚡ trojan-grpc${LABEL_SUFFIX}",
+  "remark": "⚡ trojan-grpc",
   "listen": "127.0.0.1",
   "port": ${trojan_grpc_port},
   "protocol": "trojan",
@@ -1431,7 +1431,7 @@ EOF
     cat > "$f" <<EOF
 {
   "enable": true,
-  "remark": "⚡ vmess-ws${LABEL_SUFFIX}",
+  "remark": "⚡ vmess-ws",
   "listen": "127.0.0.1",
   "port": ${vmess_ws_port},
   "protocol": "vmess",
@@ -1458,7 +1458,7 @@ EOF
     cat > "$f" <<EOF
 {
   "enable": true,
-  "remark": "⚡ vmess-grpc${LABEL_SUFFIX}",
+  "remark": "⚡ vmess-grpc",
   "listen": "127.0.0.1",
   "port": ${vmess_grpc_port},
   "protocol": "vmess",
@@ -1484,7 +1484,7 @@ EOF
     cat > "$f" <<EOF
 {
   "enable": true,
-  "remark": "⚡ ss-2022${LABEL_SUFFIX}",
+  "remark": "⚡ ss-2022",
   "listen": "",
   "port": ${ss_port},
   "protocol": "shadowsocks",
@@ -1507,7 +1507,7 @@ EOF
     cat > "$f" <<EOF
 {
   "enable": true,
-  "remark": "⚡ hysteria2${LABEL_SUFFIX}",
+  "remark": "⚡ hysteria2",
   "listen": "",
   "port": 443,
   "protocol": "hysteria",
@@ -1549,7 +1549,7 @@ EOF
     cat > "$f" <<EOF
 {
   "enable": true,
-  "remark": "⚡ tuic-v5${LABEL_SUFFIX}",
+  "remark": "⚡ tuic-v5",
   "listen": "",
   "port": ${tuic_port},
   "protocol": "tuic",
@@ -1577,7 +1577,7 @@ EOF
     cat > "$f" <<EOF
 {
   "enable": true,
-  "remark": "⚡ mtproto${LABEL_SUFFIX}",
+  "remark": "⚡ mtproto",
   "listen": "127.0.0.1",
   "port": ${mtproto_port},
   "protocol": "mtproto",
@@ -1601,7 +1601,7 @@ EOF
     cat > "$f" <<EOF
 {
   "enable": true,
-  "remark": "⚡ wireguard${LABEL_SUFFIX}",
+  "remark": "⚡ wireguard",
   "listen": "",
   "port": ${wg_port},
   "protocol": "wireguard",
@@ -1629,7 +1629,7 @@ EOF
     cat > "$f" <<EOF
 {
   "enable": true,
-  "remark": "⚡ amneziawg${LABEL_SUFFIX}",
+  "remark": "⚡ amneziawg",
   "listen": "",
   "port": ${awg_port},
   "protocol": "amneziawg",
@@ -1660,7 +1660,7 @@ create_eternal_client() { # <email> <subid> <inbound-ids-csv> [flow]
     "enable": true,
     "limitIp": 0,
     "flow": "${flow}",
-    "comment": "3x-ui-pro eternal subscription${LABEL_SUFFIX} (no expiry, unlimited)"
+    "comment": "3x-ui-pro eternal subscription (no expiry, unlimited)"
   },
   "inboundIds": ${ids_json}
 }
