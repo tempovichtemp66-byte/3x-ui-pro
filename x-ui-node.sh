@@ -57,6 +57,7 @@ TLS_MODE="verify"
 PIN_SHA=""
 MODE="add"
 DEL_NAMES=()
+SLAVE_NAME=""   # -name: node label used by -slave output
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -64,12 +65,21 @@ while [[ $# -gt 0 ]]; do
         -users) USERS_ARG="$2"; shift 2 ;;
         -tls)   TLS_MODE="$2"; shift 2 ;;
         -pin_sha) PIN_SHA="$2"; shift 2 ;;
+        -slave) MODE="slave"; shift ;;
+        -name)  SLAVE_NAME="$2"; shift 2 ;;
         -list)  MODE="list"; shift ;;
         -check) MODE="check"; shift ;;
         -del)   MODE="del"; DEL_NAMES+=("$2"); shift 2 ;;
-        *)      shift 1 ;;
+        *)      NODES+=("$1"); shift ;;   # bare spec accepted: x-ui-node.sh "NAME|...|TOKEN"
     esac
 done
+
+# If no -node args were given and stdin is piped, read specs from stdin.
+if [[ ${#NODES[@]} -eq 0 ]] && [[ ! -t 0 ]]; then
+    while IFS= read -r line; do
+        [[ -n "$line" ]] && NODES+=("$line")
+    done
+fi
 
 # ─── Master panel API (token is minted ONCE per run — it rotates per call) ──
 [[ -f "$STATE_FILE" ]] && source "$STATE_FILE"
@@ -411,9 +421,49 @@ mode_add() {
     msg_inf "Each supported inbound now also emits a profile pointing at every node (:443)."
 }
 
+# ─── Slave helper: print a ready-made command for the master ────────────────
+mode_slave() {
+    # Run ON THE SLAVE. Prints one line the master owner can paste as-is.
+    local domain="" port="" path="" label=""
+    [[ -f "$STATE_FILE" ]] && source "$STATE_FILE"
+    domain="$DOMAIN"; port="$PANEL_PORT"; path="$PANEL_PATH"; label="$LABEL"
+    if [[ -z "$domain" || -z "$port" || -z "$path" ]]; then
+        local out
+        out=$(/usr/local/x-ui/x-ui setting -show 2>/dev/null)
+        port=$(echo "$out" | sed -n 's/^port: *//p' | head -n1)
+        path=$(echo "$out" | sed -n 's/^webBasePath: *//p' | head -n1)
+        domain=$(hostname -f 2>/dev/null)
+        msg_inf "Note: not a 3x-ui-pro install — the address may need manual editing."
+    fi
+    [[ -n "$port" ]] || port="2053"
+    path="${path#/}"; path="${path%/}"
+    [[ -n "$path" ]] && path="/${path}/" || path="/"
+
+    local address="$domain" mport=443 hint=""
+    if [[ -z "$domain" ]] || ! grep -rq "$domain" /etc/nginx/stream-enabled/ 2>/dev/null; then
+        # no SNI router in front: point the master at the panel port directly
+        mport="$port"
+        address=$(ip route get 8.8.8.8 2>/dev/null | grep -Po -- 'src \K\S*' | head -n1)
+        [[ -n "$address" ]] || address="$domain"
+    fi
+    if [[ -z "$domain" ]] || [[ ! -d "/etc/letsencrypt/live/${domain}/" ]]; then
+        hint=" -tls skip"
+    fi
+
+    local name="${SLAVE_NAME:-${label:-$domain}}"
+    local spec="${name}|https|${address}|${mport}|${path}|${API_TOKEN}"
+    msg_inf "Скопируйте команду ниже и выполните её на MASTER-ноде:"
+    echo
+    echo "  bash x-ui-node.sh${hint} -node \"${spec}\""
+    echo
+    msg_inf "Проверка на мастере: bash x-ui-node.sh -list   /   bash x-ui-node.sh -check"
+    msg_err "ВАЖНО: токен ротируется при каждом запуске -slave — прошлая команда перестанет работать!"
+}
+
 case "$MODE" in
     list)  mode_list ;;
     check) mode_check ;;
     del)   mode_del ;;
+    slave) mode_slave ;;
     add)   mode_add ;;
 esac
