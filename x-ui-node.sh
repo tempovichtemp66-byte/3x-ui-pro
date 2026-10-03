@@ -210,6 +210,13 @@ mode_add() {
     for spec in "${NODES[@]}"; do
         parse_spec "$spec" || exit 1
         NODE_HOSTS["$N_NAME"]="$N_ADDR"
+        local existing
+        existing=$(api GET /nodes/list | jq -r --arg n "$N_NAME" '.obj[]? | select(.name == $n) | .id' | head -n1)
+        if [[ -n "$existing" ]]; then
+            msg_inf "→ Node '$N_NAME' already exists (id=$existing) — reusing it, no duplicate created."
+            NODE_IDS["$N_NAME"]="$existing"
+            continue
+        fi
         msg_inf "→ Adding node '$N_NAME' (${N_SCHEME}://${N_ADDR}:${N_PORT}${N_BASE})..."
         local payload resp
         payload=$(node_payload)
@@ -268,9 +275,9 @@ mode_add() {
             [[ "$net" == "kcp" ]] && continue
             id3=$(echo "$ib" | jq -r '.id')
             if [[ "$sec" == "reality" ]]; then
-                reality_ids="${reality_ids} ${id3}"
+                reality_ids="${reality_ids},${id3}"
             else
-                tls_ids="${tls_ids} ${id3}"
+                tls_ids="${tls_ids},${id3}"
             fi
         done <<< "$(echo "$ibs" | jq -c '.[]')"
 
@@ -279,7 +286,7 @@ mode_add() {
             [[ -n "$ids2" ]] || return 0
             payload=$(jq -nc --arg r "3x-ui-pro node ${name}" --arg a "${NODE_HOSTS[$name]}" \
                 --arg s "$sec2" \
-                --argjson ids "$(echo "$ids2" | tr ' ' '\n' | jq -R 'tonumber' | jq -s -c '.')" \
+                --argjson ids "$(echo "$ids2" | tr ',' '\n' | sed '/^$/d' | jq -R 'tonumber' | jq -s -c '.')" \
                 '{inboundIds:$ids, hosts:[$a], remark:$r, sortOrder:0, security:$s, sni:"",
                   fingerprint:"firefox", allowInsecure:false, pinnedPeerCertSha256:"", alpn:""}')
             api POST /hosts/add -H 'Content-Type: application/json' -d "$payload" | api_ok \
@@ -315,7 +322,7 @@ mode_add() {
                 [[ -n "$ids" ]] || return 0
                 sub="${SUBID_BASE}-${email##*-}"
                 payload=$(jq -nc --arg e "$email" --arg sub "$sub" --arg flow "$f" \
-                    --argjson ids "$(echo "$ids" | tr ' ' '\n' | jq -R 'tonumber' | jq -s -c '.')" \
+                    --argjson ids "$(echo "$ids" | tr ',' '\n' | sed '/^$/d' | jq -R 'tonumber' | jq -s -c '.')" \
                     '{client:{email:$e, subId:$sub, totalGB:0, expiryTime:0, enable:true, limitIp:0, flow:$flow, comment:"3x-ui-pro multi-node"}, inboundIds:$ids}')
                 api POST /clients/add -H 'Content-Type: application/json' -d "$payload" | api_ok \
                     || msg_err "  failed to attach '$email' (flow='$f')"
