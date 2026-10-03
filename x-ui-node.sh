@@ -312,7 +312,8 @@ mode_add() {
                 --arg tls "$TLS_MODE" --arg pin "$PIN_SHA" \
                 '{name:$name, remark:"3x-ui-pro node", scheme:$scheme, address:$addr, port:($port|tonumber),
                   basePath:$base, apiToken:$tok, enable:true, allowPrivateAddress:true,
-                  tlsVerifyMode:$tls, pinnedCertSha256:$pin}')
+                  tlsVerifyMode:$tls, pinnedCertSha256:$pin,
+                  inboundSyncMode:"selected", inboundTags:[]}')
             api POST "/nodes/update/${existing}" -H 'Content-Type: application/json' -d "$payload" | api_ok \
                 || msg_err "  failed to refresh token of '$N_NAME'"
             NODE_IDS["$N_NAME"]="$existing"
@@ -323,7 +324,8 @@ mode_add() {
                 --arg tls "$TLS_MODE" --arg pin "$PIN_SHA" \
                 '{name:$name, remark:"3x-ui-pro node", scheme:$scheme, address:$addr, port:($port|tonumber),
                   basePath:$base, apiToken:$tok, enable:true, allowPrivateAddress:true,
-                  tlsVerifyMode:$tls, pinnedCertSha256:$pin}')
+                  tlsVerifyMode:$tls, pinnedCertSha256:$pin,
+                  inboundSyncMode:"selected", inboundTags:[]}')
             resp=$(api POST /nodes/test -H 'Content-Type: application/json' -d "$payload")
             if ! echo "$resp" | api_ok; then
                 msg_err "Node '$N_NAME' unreachable: $(echo "$resp" | jq -r '.msg // "unknown error"')"
