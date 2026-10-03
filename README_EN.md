@@ -175,10 +175,10 @@ One master subscription serves connections to slave servers too. As simple as po
 **Step 1. On the slave server** run:
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/tempovichtemp66-byte/3x-ui-pro/main/x-ui-node.sh) -slave -name "Label"
+bash <(curl -fsSL https://raw.githubusercontent.com/tempovichtemp66-byte/3x-ui-pro/main/x-ui-node.sh) -slave
 ```
 
-The script detects the domain, panel port/path and certificate type, then prints a ready-made command for the master (e.g. `bash x-ui-node.sh -node "Moscow|https|msk.example.com|443|/AbCdEf/|TOKEN"`).
+The script detects the domain, panel port/path and certificate type, then prints a ready-made command for the master (e.g. `bash x-ui-node.sh -node "Netherlands|https|msk.example.com|443|/AbCdEf/|TOKEN"`). **The node label defaults to the server's country** (`curl ifconfig.co/country`); override it with `-name "My label"`.
 
 **Step 2. On the master** just paste that command (or pass the string as an argument / via pipe):
 
@@ -199,6 +199,8 @@ bash x-ui-node.sh -list                          # list nodes
 bash x-ui-node.sh -node "USA|...|TOKEN" -check   # health + uuid coverage
 bash x-ui-node.sh -del "USA" -node "USA|...|TOKEN"  # remove a node (token needed to clean slave clients)
 bash x-ui-node.sh -users 3 -node "..."           # provision only the first 3 users
+bash x-ui-node.sh -slave -name "Moscow"          # explicit label instead of the country
+curl ifconfig.co/country                          # what the script uses as the default label
 ```
 
 ⚠️ `x-ui setting -getApiToken true` (and the `-slave` mode) **rotate the token on every run**: each command printed by `-slave` works only once — after executing it, do not re-run `-slave` or the master will start getting 401/404 (fix: run the flow again with a fresh command).

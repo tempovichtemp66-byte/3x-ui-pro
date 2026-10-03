@@ -33,11 +33,14 @@
 #     401/404 from the node (fix: re-add the node with a fresh token).
 #
 # Modes:
-#   bash x-ui-node.sh -list                    # nodes on this master
-#   bash x-ui-node.sh -check                   # health + coverage check
-#   bash x-ui-node.sh -del <name> [...]        # remove node + its hosts/clients
-#   bash x-ui-node.sh -users N                 # provision only first N users
-#   bash x-ui-node.sh -tls skip|verify|pin     # TLS verify mode (default verify)
+#   bash x-ui-node.sh -slave [-name "Label"]     # ON the slave: prints a ready command
+#                                                #   (default label = server country:
+#                                                #   curl ifconfig.co/country)
+#   bash x-ui-node.sh -list                      # nodes on this master
+#   bash x-ui-node.sh -check                     # health + coverage check
+#   bash x-ui-node.sh -del <name> [...]          # remove node + its hosts/clients
+#   bash x-ui-node.sh -users N                   # provision only first N users
+#   bash x-ui-node.sh -tls skip|verify|pin       # TLS verify mode (default verify)
 #
 # WARNING: educational purposes only. Use only on servers you own and comply
 # with the laws of your country. Provided "as is", without warranty — see
@@ -450,7 +453,15 @@ mode_slave() {
         hint=" -tls skip"
     fi
 
-    local name="${SLAVE_NAME:-${label:-$domain}}"
+    local name country
+    if [[ -n "$SLAVE_NAME" ]]; then
+        name="$SLAVE_NAME"
+    else
+        # default label = the server's country (same source users see)
+        country=$(curl -fsS --max-time 8 https://ifconfig.co/country 2>/dev/null | tr -d '[:space:]')
+        country="${country//|/}"
+        name="${country:-${label:-$domain}}"
+    fi
     local spec="${name}|https|${address}|${mport}|${path}|${API_TOKEN}"
     msg_inf "Скопируйте команду ниже и выполните её на MASTER-ноде:"
     echo

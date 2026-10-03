@@ -175,10 +175,10 @@ YouTube/Telegram/GitHub и остальной мир — через прокси
 **Шаг 1. На slave-сервере** выполните:
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/tempovichtemp66-byte/3x-ui-pro/main/x-ui-node.sh) -slave -name "Метка"
+bash <(curl -fsSL https://raw.githubusercontent.com/tempovichtemp66-byte/3x-ui-pro/main/x-ui-node.sh) -slave
 ```
 
-Скрипт сам определит домен, порт, путь панели, тип сертификата и выдаст готовую команду для мастера (например `bash x-ui-node.sh -node "Москва|https|msk.example.com|443|/AbCdEf/|TOKEN"`).
+Скрипт сам определит домен, порт, путь панели, тип сертификата и выдаст готовую команду для мастера (например `bash x-ui-node.sh -node "Нидерланды|https|msk.example.com|443|/AbCdEf/|TOKEN"`). **Метка ноды по умолчанию — страна сервера** (`curl ifconfig.co/country`), переопределить можно через `-name "Моя метка"`.
 
 **Шаг 2. На master-ноде** просто вставьте эту команду (или передайте строку как аргумент / через пайп):
 
@@ -199,6 +199,8 @@ bash x-ui-node.sh -list                          # список нод
 bash x-ui-node.sh -node "USA|...|TOKEN" -check   # здоровье + покрытие uuid
 bash x-ui-node.sh -del "USA" -node "USA|...|TOKEN"  # удалить ноду (токен нужен для очистки клиентов на slave)
 bash x-ui-node.sh -users 3 -node "..."           # только первых 3 пользователей
+bash x-ui-node.sh -slave -name "Москва"          # явная метка вместо страны
+curl ifconfig.co/country                          # что скрипт берёт как метку по умолчанию
 ```
 
 ⚠️ `x-ui setting -getApiToken true` (и режим `-slave`) **ротируют токен при каждом запуске**: каждая команда из `-slave` действительна только одна — после её выполнения не запускайте `-slave` повторно, иначе мастер начнёт получать 401/404 (лечится повторным запуском со свежей командой).
