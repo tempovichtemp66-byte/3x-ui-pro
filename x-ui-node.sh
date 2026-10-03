@@ -288,7 +288,7 @@ mode_add() {
                 --arg s "$sec2" \
                 --argjson ids "$(echo "$ids2" | tr ',' '\n' | sed '/^$/d' | jq -R 'tonumber' | jq -s -c '.')" \
                 '{inboundIds:$ids, hosts:[$a], remark:$r, sortOrder:0, security:$s, sni:"",
-                  fingerprint:"firefox", allowInsecure:false, pinnedPeerCertSha256:"", alpn:""}')
+                  fingerprint:"firefox", allowInsecure:false, pinnedPeerCertSha256:[], alpn:[]}')
             api POST /hosts/add -H 'Content-Type: application/json' -d "$payload" | api_ok \
                 || msg_err "  failed to add host (security=$sec2) for node '$name'"
         }
