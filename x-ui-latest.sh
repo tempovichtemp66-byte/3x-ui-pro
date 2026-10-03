@@ -1781,8 +1781,12 @@ install_hosts() {
 #
 # The WARP anycast also answers differently per address family: some providers
 # anchor IPv6 at a far-away POP while IPv4 lands at the nearest one (AEZA:
-# ~7ms v4 vs ~45ms v6). Prefer IPv4 when the host resolves it, so the tunnel
-# uses the nearest POP; IPv6-only hosts keep the dual-stack strategy.
+# ~7ms v4 vs ~45ms v6). The tunnel MTU is therefore sized so the IPv6 path
+# fits too (IPv6 overhead is 64B vs 44B for IPv4) — an IPv4-only-safe MTU
+# breaks IPv6 egress inside the tunnel, clients fall back to the IPv4 WARP
+# range (104.28.x.x) which AI services flag as VPN, while the IPv6 WARP
+# egress (2a09:bacx::) stays clean. domainStrategy stays dual-stack so the
+# tunnel carries both families.
 # ─────────────────────────────────────────────────────────────────────────────
 WARP_EP_HOST="${WARP_EP_HOST:-engage.cloudflareclient.com}"
 WARP_TUN_MTU=""
@@ -1793,7 +1797,6 @@ detect_warp_pmtu() {
     v4=$(getent ahostsv4 "$host" 2>/dev/null | awk 'NR==1{print $1}')
     v6=$(getent ahostsv6 "$host" 2>/dev/null | awk 'NR==1{print $1}')
     if [[ -n "$v4" ]]; then
-        WARP_DOMAIN_STRATEGY="ForceIPv4"
         probe="$v4"; ipver=4
     elif [[ -n "$v6" ]]; then
         probe="$v6"; ipver=6
@@ -1817,9 +1820,9 @@ detect_warp_pmtu() {
         (( found )) || pmtu=1280
     fi
 
-    # 12-byte safety margin keeps us off the exact PMTU boundary (some paths
-    # treat UDP slightly differently than ICMP).
-    overhead=56; [[ "$ipver" == "6" ]] && overhead=76
+    # IPv6-safe: 64B overhead + 12B safety margin (44B for IPv4 alone would leave
+    # the IPv6 path oversize and silently break IPv6 egress inside the tunnel).
+    overhead=76
     mtu=$((pmtu - overhead))
     (( mtu < 1280 )) && mtu=1280
     (( mtu > 1420 )) && mtu=1420
