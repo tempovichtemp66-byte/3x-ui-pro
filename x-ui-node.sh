@@ -213,9 +213,11 @@ mode_del() {
         [[ -n "$payload" ]] && api POST "/nodes/update/${id}" -H 'Content-Type: application/json' -d "$payload" >/dev/null
         msg_inf "  node '$name' disabled (reconcile stopped)."
 
-        # Remove host overrides created for this node (incl. old-style bare groups).
-        local hids
-        hids=$(api GET /hosts/list | jq -r --arg r "3x-ui-pro node ${name} " --arg rb "3x-ui-pro node ${name}" '.obj[]? | select((.remark | startswith($r)) or .remark == $rb) | .groupId' | sort -u)
+        # Remove host overrides created for this node (identified by its GUID,
+        # with a fallback for old-style "3x-ui-pro node ..." remarks).
+        local node_guid hids
+        node_guid=$(echo "$out" | jq -r --arg n "$name" '.obj[]? | select(.name == $n) | .guid' | head -n1)
+        hids=$(api GET /hosts/list | jq -r --arg g "$node_guid" --arg rb "3x-ui-pro node ${name}" '[.obj[]? | select((((.nodeGuids // []) | index($g)) != null) or .remark == $rb or (.remark | startswith($rb))) | .groupId] | unique | join(" ")')
         for hid in $hids; do
             api POST "/hosts/del/${hid}" >/dev/null && msg_inf "  host group ${hid} removed"
         done
@@ -260,7 +262,9 @@ mode_check() {
     echo "$out" | jq -r '.obj[]? | "\(.name): \(.status) (\(.inboundCount) inbounds, \(.clientCount) clients) latency=\(.latencyMs)ms"'
     local name hcount
     for name in $(echo "$out" | jq -r '.obj[]? | .name'); do
-        hcount=$(api GET /hosts/list | jq -r --arg r "3x-ui-pro node ${name} " '[.obj[]? | select(.remark | startswith($r))] | length')
+        local ng
+        ng=$(echo "$out" | jq -r --arg n "$name" '.obj[]? | select(.name == $n) | .guid' | head -n1)
+        hcount=$(api GET /hosts/list | jq -r --arg g "$ng" '[.obj[]? | select(((.nodeGuids // []) | index($g)) != null)] | length')
         echo "  host overrides on master for '${name}': ${hcount}"
     done
 local email uuid ok=1
@@ -344,6 +348,18 @@ mode_add() {
 
     [[ ${#NODE_IDS[@]} -gt 0 ]] || { msg_err "No nodes were registered."; exit 1; }
 
+    # Ensure the subscription remark template surfaces {{HOST}} so slave links
+    # carry the "SLAVE" marker next to the inbound name.
+    local tpl
+    tpl=$(api POST /setting/all | jq -r '.obj.remarkTemplate // ""')
+    if [[ "$tpl" != *"{{HOST}}"* ]]; then
+        msg_inf "Setting the subscription remark template to '{{INBOUND}}|{{HOST}}' (slave links will be marked SLAVE)..."
+        api POST /setting/all | jq -c '.obj | .remarkTemplate = "{{INBOUND}}|{{HOST}}"' \
+            | curl -sk --max-time 60 -X POST -H "Authorization: Bearer ${API_TOKEN}" \
+                -H 'Content-Type: application/json' -d @- "${PANEL_BASE}/panel/api/setting/update" \
+            | jq -c '{success, msg}'
+    fi
+
     # 2. Master local inbounds (nodeId empty) of supported transports.
     local master_ibs
     master_ibs=$(api GET /inbounds/list | jq -c '[.obj[]? | select((.nodeId // null) == null)]')
@@ -380,14 +396,15 @@ mode_add() {
                 [[ -n "$sp" ]] && path="$sp"
                 [[ -n "$sh" ]] && host="$sh"
             fi
-            remark="3x-ui-pro node ${name} ${proto}-${net}"
-            local payload resp2 gid
-            gid=$(api GET /hosts/list | jq -r --arg r "$remark" '.obj[]? | select(.remark == $r) | .groupId' | head -n1)
+            remark="SLAVE"
+            local node_guid payload resp2 gid
+            node_guid=$(api GET /nodes/list | jq -r --argjson nid "$nid" '.obj[]? | select(.id == $nid) | .guid' | head -n1)
             payload=$(jq -nc --arg r "$remark" --arg h "$n_host" --argjson iid "$ids" \
-                --arg p "${path:-}" --arg hh "${host:-}" \
+                --arg p "${path:-}" --arg hh "${host:-}" --arg ng "$node_guid" \
                 '{remark:$r, inboundIds:[$iid], hosts:[$h], port:443, security:"tls",
                   sni:"", hostHeader:$hh, path:$p, sortOrder:1, fingerprint:"firefox",
-                  allowInsecure:false, pinnedPeerCertSha256:[], alpn:[]}')
+                  allowInsecure:false, pinnedPeerCertSha256:[], alpn:[], nodeGuids:[$ng]}')
+            gid=$(api GET /hosts/list | jq -r --arg g "$node_guid" '[.obj[]? | select(((.nodeGuids // []) | index($g)) != null and ((.inboundIds // []) | index($iid)) != null) | .groupId] | .[0] // empty' | head -n1)
             if [[ -n "$gid" ]]; then
                 resp2=$(api POST "/hosts/update/${gid}" -H 'Content-Type: application/json' -d "$payload")
             else
