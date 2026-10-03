@@ -204,6 +204,15 @@ mode_del() {
         id=$(echo "$out" | jq -r --arg n "$name" '.obj[]? | select(.name == $n) | .id' | head -n1)
         [[ -n "$id" ]] || { msg_err "Node '$name' not found on the master."; continue; }
 
+        # CRITICAL ORDER: disable the node FIRST so the master's reconcile job
+        # stops pushing state to it. Otherwise deleting the imported inbounds
+        # makes the master "reconcile" by deleting the SAME inbounds on the
+        # slave panel (observed: wiped all 16 inbounds on a live slave).
+        local payload
+        payload=$(echo "$out" | jq -c --argjson nid "$id" '.obj[]? | select(.id == $nid) | {name, scheme, address, port, basePath, apiToken, enable:false, allowPrivateAddress, tlsVerifyMode, pinnedCertSha256}')
+        [[ -n "$payload" ]] && api POST "/nodes/update/${id}" -H 'Content-Type: application/json' -d "$payload" >/dev/null
+        msg_inf "  node '$name' disabled (reconcile stopped)."
+
         # Remove host overrides created for this node (incl. old-style bare groups).
         local hids
         hids=$(api GET /hosts/list | jq -r --arg r "3x-ui-pro node ${name} " --arg rb "3x-ui-pro node ${name}" '.obj[]? | select((.remark | startswith($r)) or .remark == $rb) | .groupId' | sort -u)
