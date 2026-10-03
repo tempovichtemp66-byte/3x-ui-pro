@@ -183,11 +183,11 @@ bash <(curl -fsSL https://raw.githubusercontent.com/tempovichtemp66-byte/3x-ui-p
 **Шаг 2. На master-ноде** просто вставьте эту команду (или передайте строку как аргумент / через пайп):
 
 ```bash
-bash x-ui-node.sh -node "Москва|https|msk.example.com|443|/AbCdEf/|TOKEN"
-# или
-bash x-ui-node.sh "Москва|https|msk.example.com|443|/AbCdEf/|TOKEN"
-# или
-echo "Москва|https|msk.example.com|443|/AbCdEf/|TOKEN" | bash x-ui-node.sh
+bash <(curl -fsSL https://raw.githubusercontent.com/tempovichtemp66-byte/3x-ui-pro/main/x-ui-node.sh) -node "Москва|https|msk.example.com|443|/AbCdEf/|TOKEN"
+# или просто строка:
+bash <(curl -fsSL .../x-ui-node.sh) "Москва|https|msk.example.com|443|/AbCdEf/|TOKEN"
+# или пайп:
+echo "Москва|https|msk.example.com|443|/AbCdEf/|TOKEN" | bash <(curl -fsSL .../x-ui-node.sh)
 ```
 
 Механика: нода регистрируется на мастере (мониторинг/статус), для каждого поддерживаемого инбаунда мастера создаётся **host-оверрайд** на адрес slave (`:443`, путь slave), а uuid вечных пользователей мастера **провижинятся на slave** — подписка `https://<мастер>/<sub-path>/<subid>` начинает отдавать дополнительные профили с адресами нод. Работает для `vless/trojan/vmess` поверх `ws/httpupgrade/xhttp`. Не покрываются (технически не склеиваются): REALITY (ключи сервера), gRPC (serviceName), kcp/tuic/hysteria/shadowsocks (своя авторизация), wireguard/amneziawg, mtproto.

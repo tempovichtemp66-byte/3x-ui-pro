@@ -183,11 +183,11 @@ The script detects the domain, panel port/path and certificate type, then prints
 **Step 2. On the master** just paste that command (or pass the string as an argument / via pipe):
 
 ```bash
-bash x-ui-node.sh -node "Moscow|https|msk.example.com|443|/AbCdEf/|TOKEN"
-# or
-bash x-ui-node.sh "Moscow|https|msk.example.com|443|/AbCdEf/|TOKEN"
-# or
-echo "Moscow|https|msk.example.com|443|/AbCdEf/|TOKEN" | bash x-ui-node.sh
+bash <(curl -fsSL https://raw.githubusercontent.com/tempovichtemp66-byte/3x-ui-pro/main/x-ui-node.sh) -node "Moscow|https|msk.example.com|443|/AbCdEf/|TOKEN"
+# or just the string:
+bash <(curl -fsSL .../x-ui-node.sh) "Moscow|https|msk.example.com|443|/AbCdEf/|TOKEN"
+# or via pipe:
+echo "Moscow|https|msk.example.com|443|/AbCdEf/|TOKEN" | bash <(curl -fsSL .../x-ui-node.sh)
 ```
 
 Mechanics: the node is registered on the master (monitoring/status), every supported master inbound gets a **host override** pointing at the slave (`:443`, slave's path), and the master's eternal-user UUIDs are **provisioned onto the slave** — the subscription `https://<master>/<sub-path>/<subid>` then emits extra profiles pointing at the node addresses. Works for `vless/trojan/vmess` over `ws/httpupgrade/xhttp`. Not covered (cannot be bridged this way): REALITY (server keys), gRPC (serviceName), kcp/tuic/hysteria/shadowsocks (own auth), wireguard/amneziawg, mtproto.
