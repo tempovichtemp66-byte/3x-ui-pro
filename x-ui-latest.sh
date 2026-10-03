@@ -80,6 +80,8 @@ domain=""
 sni="bing"                 # bing | google | duckduckgo | any domain name
 cover="endless"            # endless | random
 users_arg=""               # -users: how many never-expiring users (default 10)
+label=""                   # -label: extra string appended to connection/subscription names
+LABEL_SUFFIX=""            # " [label]" once -label is validated
 XRAY_CORE="v26.6.27"        # pinned core: newer cores break REALITY in Mihomo/sing-box
                             # (verified 2026-10-01); pass -xray_core none to keep the bundled one
 UNINSTALL="x"
@@ -177,6 +179,7 @@ while [ "$#" -gt 0 ]; do
         -sni)              sni="$2";        shift 2 ;;
         -cover)            cover="$2";      shift 2 ;;
         -users)            users_arg="$2";  shift 2 ;;
+        -label)            label="$2";      shift 2 ;;
         -xray_core)        XRAY_CORE="$2";  shift 2 ;;
         -ONLY_CF_IP_ALLOW) CFALLOW="$2";    shift 2 ;;
         -version)          PANEL_VERSION="$2"; shift 2 ;;
@@ -232,6 +235,7 @@ save_state() {
 DOMAIN='${domain}'
 SNI='${sni}'
 COVER='${cover}'
+LABEL='${label}'
 PANEL_PORT='${panel_port}'
 PANEL_PATH='${panel_path}'
 SUB_PORT='${sub_port}'
@@ -283,7 +287,7 @@ save_panel_readme() {
     xray_ver=$("$(xray_bin_path)" version 2>/dev/null | awk 'NR==1 {print $2}')
     [[ -n "$MTPROTO_ID" ]] && mt_note=", mtproto" || mt_note=""
     {
-        echo "# 3x-ui-pro — доступы и подписки"
+        echo "# 3x-ui-pro — доступы и подписки${LABEL_SUFFIX}"
         echo
         echo "Создано: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
         echo
@@ -296,6 +300,7 @@ save_panel_readme() {
         echo
         echo "## Сервер"
         echo
+        [[ -n "$label" ]] && echo "- Метка: \`${label}\`"
         echo "- Домен: \`${domain}\`"
         echo "- Маскировка REALITY (SNI): \`${sni_domain}\`"
         echo "- Заглушка: \`${cover}\`"
@@ -377,6 +382,13 @@ validate_domains() {
             exit 1
         fi
     fi
+
+    # -label: strip shell-hostile characters, collapse whitespace, cap length.
+    label="${label//[\'\`\$\"\\]/}"
+    label="$(echo "$label" | tr -s '[:space:]' ' ' | sed 's/^ //; s/ $//')"
+    label="${label:0:32}"
+    LABEL_SUFFIX=""
+    [[ -n "$label" ]] && LABEL_SUFFIX=" [${label}]"
 }
 
 # REALITY steals a real site's TLS handshake, so the masking site has to answer
@@ -1166,7 +1178,7 @@ install_inbounds() {
     cat > "$f" <<EOF
 {
   "enable": true,
-  "remark": "⚡ reality",
+  "remark": "⚡ reality${LABEL_SUFFIX}",
   "listen": "127.0.0.1",
   "port": ${reality_port},
   "protocol": "vless",
@@ -1211,7 +1223,7 @@ EOF
     cat > "$f" <<EOF
 {
   "enable": true,
-  "remark": "⚡ ws",
+  "remark": "⚡ ws${LABEL_SUFFIX}",
   "listen": "127.0.0.1",
   "port": ${ws_port},
   "protocol": "vless",
@@ -1238,7 +1250,7 @@ EOF
     cat > "$f" <<EOF
 {
   "enable": true,
-  "remark": "⚡ grpc",
+  "remark": "⚡ grpc${LABEL_SUFFIX}",
   "listen": "127.0.0.1",
   "port": ${grpc_port},
   "protocol": "vless",
@@ -1264,7 +1276,7 @@ EOF
     cat > "$f" <<EOF
 {
   "enable": true,
-  "remark": "⚡ httpupgrade",
+  "remark": "⚡ httpupgrade${LABEL_SUFFIX}",
   "listen": "127.0.0.1",
   "port": ${httpupgrade_port},
   "protocol": "vless",
@@ -1291,7 +1303,7 @@ EOF
     cat > "$f" <<EOF
 {
   "enable": true,
-  "remark": "⚡ xhttp",
+  "remark": "⚡ xhttp${LABEL_SUFFIX}",
   "listen": "127.0.0.1",
   "port": ${xhttp_port},
   "protocol": "vless",
@@ -1330,7 +1342,7 @@ EOF
     cat > "$f" <<EOF
 {
   "enable": true,
-  "remark": "⚡ kcp",
+  "remark": "⚡ kcp${LABEL_SUFFIX}",
   "listen": "",
   "port": ${kcp_port},
   "protocol": "vless",
@@ -1359,7 +1371,7 @@ EOF
     cat > "$f" <<EOF
 {
   "enable": true,
-  "remark": "⚡ trojan-ws",
+  "remark": "⚡ trojan-ws${LABEL_SUFFIX}",
   "listen": "127.0.0.1",
   "port": ${trojan_ws_port},
   "protocol": "trojan",
@@ -1386,7 +1398,7 @@ EOF
     cat > "$f" <<EOF
 {
   "enable": true,
-  "remark": "⚡ trojan-grpc",
+  "remark": "⚡ trojan-grpc${LABEL_SUFFIX}",
   "listen": "127.0.0.1",
   "port": ${trojan_grpc_port},
   "protocol": "trojan",
@@ -1412,7 +1424,7 @@ EOF
     cat > "$f" <<EOF
 {
   "enable": true,
-  "remark": "⚡ vmess-ws",
+  "remark": "⚡ vmess-ws${LABEL_SUFFIX}",
   "listen": "127.0.0.1",
   "port": ${vmess_ws_port},
   "protocol": "vmess",
@@ -1439,7 +1451,7 @@ EOF
     cat > "$f" <<EOF
 {
   "enable": true,
-  "remark": "⚡ vmess-grpc",
+  "remark": "⚡ vmess-grpc${LABEL_SUFFIX}",
   "listen": "127.0.0.1",
   "port": ${vmess_grpc_port},
   "protocol": "vmess",
@@ -1465,7 +1477,7 @@ EOF
     cat > "$f" <<EOF
 {
   "enable": true,
-  "remark": "⚡ ss-2022",
+  "remark": "⚡ ss-2022${LABEL_SUFFIX}",
   "listen": "",
   "port": ${ss_port},
   "protocol": "shadowsocks",
@@ -1488,7 +1500,7 @@ EOF
     cat > "$f" <<EOF
 {
   "enable": true,
-  "remark": "⚡ hysteria2",
+  "remark": "⚡ hysteria2${LABEL_SUFFIX}",
   "listen": "",
   "port": 443,
   "protocol": "hysteria",
@@ -1530,7 +1542,7 @@ EOF
     cat > "$f" <<EOF
 {
   "enable": true,
-  "remark": "⚡ tuic-v5",
+  "remark": "⚡ tuic-v5${LABEL_SUFFIX}",
   "listen": "",
   "port": ${tuic_port},
   "protocol": "tuic",
@@ -1558,7 +1570,7 @@ EOF
     cat > "$f" <<EOF
 {
   "enable": true,
-  "remark": "⚡ mtproto",
+  "remark": "⚡ mtproto${LABEL_SUFFIX}",
   "listen": "127.0.0.1",
   "port": ${mtproto_port},
   "protocol": "mtproto",
@@ -1582,7 +1594,7 @@ EOF
     cat > "$f" <<EOF
 {
   "enable": true,
-  "remark": "⚡ wireguard",
+  "remark": "⚡ wireguard${LABEL_SUFFIX}",
   "listen": "",
   "port": ${wg_port},
   "protocol": "wireguard",
@@ -1610,7 +1622,7 @@ EOF
     cat > "$f" <<EOF
 {
   "enable": true,
-  "remark": "⚡ amneziawg",
+  "remark": "⚡ amneziawg${LABEL_SUFFIX}",
   "listen": "",
   "port": ${awg_port},
   "protocol": "amneziawg",
@@ -1641,7 +1653,7 @@ create_eternal_client() { # <email> <subid> <inbound-ids-csv> [flow]
     "enable": true,
     "limitIp": 0,
     "flow": "${flow}",
-    "comment": "3x-ui-pro eternal subscription (no expiry, unlimited)"
+    "comment": "3x-ui-pro eternal subscription${LABEL_SUFFIX} (no expiry, unlimited)"
   },
   "inboundIds": ${ids_json}
 }
@@ -2081,6 +2093,7 @@ show_results() {
         echo -e "Password:  ${config_password}"
         msg_inf "────────────────────────────────────────────────────────────────────────────────"
         msg_inf "Eternal users: ${eternal_users} × (no expiry, unlimited traffic each)"
+        [[ -n "$label" ]] && msg_inf "Label: ${label}"
         msg_inf "Full list (panel + every subscription link): /root/README_PANEL.md"
         local u
         for ((u = 1; u <= eternal_users; u++)); do
@@ -2255,6 +2268,7 @@ main() {
         if [[ "$sni" == "bing" ]]; then sni="${SNI_DOMAIN:-${SNI:-bing}}"; fi
         eternal_users="${users_arg:-${ETERNAL_USERS:-10}}"
         cover="${COVER:-$cover}"
+        label="${label:-$LABEL}"
     fi
 
     validate_domains
