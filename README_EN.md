@@ -211,7 +211,7 @@ curl ifconfig.co/country                          # what the script uses as the 
 |--------|-------------|
 | `-subdomain <domain>` | Panel, subscription and cover-site domain |
 | `-users N` | How many eternal users to create (default 10, range 1–100) |
-| `-label <string>` | A label appended to connection names (inbound remarks — visible in the panel and in the JSON subscription in Happ) and to the subscriptions in `README_PANEL.md` (e.g. `-label "Moscow"`) |
+| `-label <string>` | A label appended to connection names (inbound remarks — visible in the panel and in the JSON subscription in Happ) and to the subscriptions in `README_PANEL.md`. **Defaults to the server's country** (`curl ifconfig.co/country`), e.g. `⚡ reality [The Netherlands]` |
 | `-sni bing\|google\|duckduckgo\|<domain>` | Which site REALITY is masked as (default `bing`; validated for TLS 1.3 + HTTP/2, falls back to another site if unreachable) |
 | `-cover endless\|random` | Cover site: endless loading or a random site (default `endless`) |
 | `-xray_core <version\|none>` | Xray core. Default `v26.6.27`: newer cores (26.7+) break REALITY for Mihomo/sing-box (verified on a live server, 2026-10-01). `-xray_core none` keeps the panel's bundled core |

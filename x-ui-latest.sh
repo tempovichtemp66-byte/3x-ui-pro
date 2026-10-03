@@ -80,7 +80,8 @@ domain=""
 sni="bing"                 # bing | google | duckduckgo | any domain name
 cover="endless"            # endless | random
 users_arg=""               # -users: how many never-expiring users (default 10)
-label=""                   # -label: extra string appended to connection/subscription names
+label=""                   # -label: extra string for connection/subscription names
+                            # default when unset: server country (curl ifconfig.co/country)
 LABEL_SUFFIX=""            # " [label]" once -label is validated
 XRAY_CORE="v26.6.27"        # pinned core: newer cores break REALITY in Mihomo/sing-box
                             # (verified 2026-10-01); pass -xray_core none to keep the bundled one
@@ -387,6 +388,12 @@ validate_domains() {
     label="${label//[\'\`\$\"\\]/}"
     label="$(echo "$label" | tr -s '[:space:]' ' ' | sed 's/^ //; s/ $//')"
     label="${label:0:32}"
+    if [[ -z "$label" ]]; then
+        # default label = the server's country (curl ifconfig.co/country)
+        label=$(curl -fsS --max-time 8 https://ifconfig.co/country 2>/dev/null | tr -d '\r\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
+        label="${label//|/}"
+        label="${label:0:32}"
+    fi
     LABEL_SUFFIX=""
     [[ -n "$label" ]] && LABEL_SUFFIX=" [${label}]"
 }
