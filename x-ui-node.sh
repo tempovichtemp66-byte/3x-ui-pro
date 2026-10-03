@@ -383,16 +383,26 @@ mode_add() {
     [[ ${#NODE_IDS[@]} -gt 0 ]] || { msg_err "No nodes were registered."; exit 1; }
 
     # Ensure the subscription remark template surfaces {{HOST}} so slave links
-    # carry the "SLAVE" marker next to the inbound name.
+    # carry the "SLAVE" marker; a space separator keeps names short and clean.
     local tpl
     tpl=$(api POST /setting/all | jq -r '.obj.remarkTemplate // ""')
     if [[ "$tpl" != *"{{HOST}}"* ]]; then
-        msg_inf "Setting the subscription remark template to '{{INBOUND}}|{{HOST}}' (slave links will be marked SLAVE)..."
-        api POST /setting/all | jq -c '.obj | .remarkTemplate = "{{INBOUND}}|{{HOST}}"' \
+        msg_inf "Setting the subscription remark template to '{{INBOUND}}{{HOST}}' (slave links will be marked SLAVE)..."
+        api POST /setting/all | jq -c '.obj | .remarkTemplate = "{{INBOUND}}{{HOST}}"' \
             | curl -sk --max-time 60 -X POST -H "Authorization: Bearer ${API_TOKEN}" \
                 -H 'Content-Type: application/json' -d @- "${PANEL_BASE}/panel/api/setting/update" \
             | jq -c '{success, msg}'
     fi
+
+    # Older installs gave the installer's own host groups "3x-ui-pro <proto>"
+    # remarks, which leak into every master link name. Clear them so master
+    # names are just the inbound remark (slave links keep their SLAVE marker).
+    local inst_gids inst_payload
+    inst_gids=$(api GET /hosts/list | jq -r '[.obj[]? | select(.remark | startswith("3x-ui-pro")) | .groupId] | unique | .[]')
+    for gid in $inst_gids; do
+        inst_payload=$(api GET /hosts/list | jq -c --arg g "$gid" '.obj[]? | select(.groupId == $g) | . + {remark:""}')
+        [[ -n "$inst_payload" ]] && api POST "/hosts/update/${gid}" -H 'Content-Type: application/json' -d "$inst_payload" >/dev/null 2>&1
+    done
 
     # 2. Master local inbounds (nodeId empty) of supported transports.
     local master_ibs
@@ -480,7 +490,7 @@ mode_add() {
             payload2=$(jq -nc --arg h "$n_host" --argjson iid "$ids" \
                 --arg p "${path:-}" --arg hh "${hh:-}" --arg ng "$node_guid" \
                 --arg sec "$security" --argjson prt "$port" --argjson ai "$ai" \
-                '{remark:"SLAVE", inboundIds:[$iid], hosts:[$h], port:$prt, security:$sec,
+                '{remark:" SLAVE", inboundIds:[$iid], hosts:[$h], port:$prt, security:$sec,
                   sni:"", hostHeader:$hh, path:$p, sortOrder:1, fingerprint:"firefox",
                   allowInsecure:$ai, pinnedPeerCertSha256:[], alpn:[], nodeGuids:[$ng]}')
             gid2=$(api GET /hosts/list | jq -r --arg g "$node_guid" --argjson iid "$ids" '[.obj[]? | select(((.nodeGuids // []) | index($g)) != null and ((.inboundIds // []) | index($iid)) != null) | .groupId] | .[0] // empty' | head -n1)

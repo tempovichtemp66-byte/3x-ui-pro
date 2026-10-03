@@ -1696,7 +1696,7 @@ install_eternal_users() {
 
 delete_managed_hosts() {
     local groups gid
-    groups=$(api GET /hosts/list | jq -r '.obj[]? | select(.remark | startswith("3x-ui-pro")) | .groupId')
+    groups=$(api GET /hosts/list | jq -r --arg d "$domain" '.obj[]? | select((.hosts[0] // "") | startswith($d)) | .groupId')
     [[ -z "$groups" ]] && return 0
     for gid in $groups; do
         api POST "/hosts/del/${gid}" >/dev/null
@@ -1749,24 +1749,24 @@ install_hosts() {
     # realitySettings.serverNames into the JSON subscription client configs,
     # and xray-core v26 clients reject that field (they want serverName).
     # The link still gets its SNI from the inbound's own serverNames.
-    add_host_group "3x-ui-pro reality" "$REALITY_ID" "${domain}:443" "same" "" "" "no" ""
+    add_host_group " " "$REALITY_ID" "${domain}:443" "same" "" "" "no" ""
     # ALPN must match the transport: WebSocket/HTTPUpgrade speak HTTP/1.1,
     # gRPC needs h2, XHTTP accepts both. A wrong ALPN makes nginx translate the
     # protocol and the xray inbound drops the connection.
-    add_host_group "3x-ui-pro ws" \
+    add_host_group " " \
         "$WS_ID,$TROJAN_WS_ID,$VMESS_WS_ID,$HTTPUPGRADE_ID" "${domain}:443" "tls" "" "http/1.1" "$insec" "$pin"
-    add_host_group "3x-ui-pro grpc" \
+    add_host_group " " \
         "$GRPC_ID,$TROJAN_GRPC_ID,$VMESS_GRPC_ID" "${domain}:443" "tls" "" "h2" "$insec" "$pin"
-    add_host_group "3x-ui-pro xhttp" \
+    add_host_group " " \
         "$XHTTP_ID" "${domain}:443" "tls" "" "h2,http/1.1" "$insec" "$pin"
     # UDP / sidecar protocols advertise their own ports.
-    add_host_group "3x-ui-pro hysteria" "$HYSTERIA_ID" "${domain}:443" "tls" "${domain}" "" "$insec" "$pin"
-    add_host_group "3x-ui-pro kcp"      "$KCP_ID"      "${domain}:${kcp_port}" "none" "" "" "no" ""
-    add_host_group "3x-ui-pro tuic"     "$TUIC_ID"     "${domain}:${tuic_port}" "tls" "${domain}" "" "$insec" "$pin"
-    add_host_group "3x-ui-pro ss"       "$SS_ID"       "${domain}:${ss_port}" "none" "" "" "no" ""
-    add_host_group "3x-ui-pro wireguard" "$WG_ID"      "${domain}:${wg_port}" "none" "" "" "no" ""
-    add_host_group "3x-ui-pro awg"      "$AWG_ID"      "${domain}:${awg_port}" "none" "" "" "no" ""
-    [[ -n "$MTPROTO_ID" ]] && add_host_group "3x-ui-pro mtproto" "$MTPROTO_ID" "${domain}:443" "none" "" "" "no" ""
+    add_host_group " " "$HYSTERIA_ID" "${domain}:443" "tls" "${domain}" "" "$insec" "$pin"
+    add_host_group " "      "$KCP_ID"      "${domain}:${kcp_port}" "none" "" "" "no" ""
+    add_host_group " "     "$TUIC_ID"     "${domain}:${tuic_port}" "tls" "${domain}" "" "$insec" "$pin"
+    add_host_group " "       "$SS_ID"       "${domain}:${ss_port}" "none" "" "" "no" ""
+    add_host_group " " "$WG_ID"      "${domain}:${wg_port}" "none" "" "" "no" ""
+    add_host_group " "      "$AWG_ID"      "${domain}:${awg_port}" "none" "" "" "no" ""
+    [[ -n "$MTPROTO_ID" ]] && add_host_group " " "$MTPROTO_ID" "${domain}:443" "none" "" "" "no" ""
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
