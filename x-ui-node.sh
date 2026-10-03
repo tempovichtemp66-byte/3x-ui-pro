@@ -458,7 +458,7 @@ mode_slave() {
         name="$SLAVE_NAME"
     else
         # default label = the server's country (same source users see)
-        country=$(curl -fsS --max-time 8 https://ifconfig.co/country 2>/dev/null | tr -d '[:space:]')
+        country=$(curl -fsS --max-time 8 https://ifconfig.co/country 2>/dev/null | tr -d '\r\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
         country="${country//|/}"
         name="${country:-${label:-$domain}}"
     fi
