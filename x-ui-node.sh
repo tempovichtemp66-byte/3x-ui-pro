@@ -111,6 +111,8 @@ api_ok() { jq -e '.success == true' >/dev/null 2>&1; }
 parse_spec() { # <spec> -> N_NAME N_SCHEME N_ADDR N_PORT N_BASE N_TOKEN
     local spec="$1"
     N_NAME=$(echo "$spec" | cut -d'|' -f1)
+    N_NAME=$(echo "$N_NAME" | tr -d '|' | tr '[:space:]' '-' | sed 's/-\+/-/g; s/^-//; s/-$//')
+    N_NAME="${N_NAME:0:32}"
     N_SCHEME=$(echo "$spec" | cut -d'|' -f2); [[ -n "$N_SCHEME" ]] || N_SCHEME="https"
     N_ADDR=$(echo "$spec" | cut -d'|' -f3)
     N_PORT=$(echo "$spec" | cut -d'|' -f4)
@@ -459,9 +461,11 @@ mode_slave() {
     else
         # default label = the server's country (same source users see)
         country=$(curl -fsS --max-time 8 https://ifconfig.co/country 2>/dev/null | tr -d '\r\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
-        country="${country//|/}"
         name="${country:-${label:-$domain}}"
     fi
+    # node names feed slave client emails — keep them safe (no spaces/pipes)
+    name=$(echo "$name" | tr -d '|' | tr '[:space:]' '-' | sed 's/-\+/-/g; s/^-//; s/-$//')
+    name="${name:0:32}"
     local spec="${name}|https|${address}|${mport}|${path}|${API_TOKEN}"
     msg_inf "Скопируйте команду ниже и выполните её на MASTER-ноде:"
     echo
