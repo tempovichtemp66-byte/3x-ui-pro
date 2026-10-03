@@ -1911,7 +1911,6 @@ configure_warp() {
             "domainStrategy": "IPIfNonMatch",
             "rules": [
               {"type": "field", "outboundTag": "direct", "ip": ["geoip:private"]},
-              {"type": "field", "outboundTag": "direct", "domain": ["geosite:google", "geosite:openai"]},
               {"type": "field", "outboundTag": (if $has_warp then "warp" else "direct" end), "network": "tcp,udp"}
             ]
           }
