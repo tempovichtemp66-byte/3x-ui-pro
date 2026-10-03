@@ -151,6 +151,8 @@ The installer registers a Cloudflare WARP device through the panel API and adds 
 - a `warp` outbound (WireGuard, `noKernelTun`, IPv4/IPv6);
 - routing: private networks → `direct`, everything else → `warp`.
 
+**Tunnel MTU and address family are chosen automatically.** The installer probes the path MTU to the WARP endpoint (`ping -M do`) and picks a tunnel MTU whose outer packets always fit (on networks with MTU <1500, e.g. AEZA/1448, a hardcoded 1420 caused packet loss and multi-second delays), and prefers the IPv4 anycast when the host's IPv6 path anchors at a distant POP. The same MTU is applied to the WireGuard inbound.
+
 If registration fails the config stays on `direct` (no connectivity loss); enable WARP manually under **Xray → WARP** in the panel.
 
 ---

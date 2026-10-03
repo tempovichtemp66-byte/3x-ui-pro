@@ -1588,7 +1588,7 @@ EOF
   "protocol": "wireguard",
   "tag": "3x-wireguard",
   "settings": {
-    "mtu": 1420,
+    "mtu": ${WARP_TUN_MTU:-1420},
     "secretKey": "${wg_key}",
     "peers": [],
     "clients": []
@@ -1751,6 +1751,63 @@ install_hosts() {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
+# WARP PATH MTU DETECTION
+# ─────────────────────────────────────────────────────────────────────────────
+# The WireGuard tunnel's MTU must fit the outer packet (tunnel MTU + 44 bytes
+# of IPv4 overhead: 20 IP + 8 UDP + 16 WireGuard) into the path MTU towards
+# the WARP endpoint. Many providers cap the path below 1500 (AEZA: 1448), so
+# the old hardcoded 1420 silently dropped every full-size tunnel packet and
+# every client request took 5-10s. Probe with ICMP (ping -M do) and clamp the
+# tunnel MTU to [1280, 1420].
+#
+# The WARP anycast also answers differently per address family: some providers
+# anchor IPv6 at a far-away POP while IPv4 lands at the nearest one (AEZA:
+# ~7ms v4 vs ~45ms v6). Prefer IPv4 when the host resolves it, so the tunnel
+# uses the nearest POP; IPv6-only hosts keep the dual-stack strategy.
+# ─────────────────────────────────────────────────────────────────────────────
+WARP_EP_HOST="${WARP_EP_HOST:-engage.cloudflareclient.com}"
+WARP_TUN_MTU=""
+WARP_DOMAIN_STRATEGY="ForceIPv4v6"
+
+detect_warp_pmtu() {
+    local host="$1" v4 v6 probe ipver size pmtu overhead mtu
+    v4=$(getent ahostsv4 "$host" 2>/dev/null | awk 'NR==1{print $1}')
+    v6=$(getent ahostsv6 "$host" 2>/dev/null | awk 'NR==1{print $1}')
+    if [[ -n "$v4" ]]; then
+        WARP_DOMAIN_STRATEGY="ForceIPv4"
+        probe="$v4"; ipver=4
+    elif [[ -n "$v6" ]]; then
+        probe="$v6"; ipver=6
+    else
+        msg_inf "WARP endpoint ${host} did not resolve — keeping default MTU 1420."
+        WARP_TUN_MTU=1420
+        return 0
+    fi
+
+    pmtu=1500
+    if command -v ping >/dev/null 2>&1; then
+        local found=0
+        for size in 1472 1448 1420 1380 1340 1300 1252; do
+            if ping -"$ipver" -c 1 -W 2 -M do -s "$size" "$probe" >/dev/null 2>&1; then
+                if [[ "$ipver" == "6" ]]; then pmtu=$((size + 48)); else pmtu=$((size + 28)); fi
+                found=1
+                break
+            fi
+        done
+        # ICMP fully blocked: assume the worst instead of guessing 1500.
+        (( found )) || pmtu=1280
+    fi
+
+    # 12-byte safety margin keeps us off the exact PMTU boundary (some paths
+    # treat UDP slightly differently than ICMP).
+    overhead=56; [[ "$ipver" == "6" ]] && overhead=76
+    mtu=$((pmtu - overhead))
+    (( mtu < 1280 )) && mtu=1280
+    (( mtu > 1420 )) && mtu=1420
+    WARP_TUN_MTU=$mtu
+    msg_inf "WARP path MTU to ${probe}: ${pmtu} B -> tunnel MTU ${WARP_TUN_MTU} (${WARP_DOMAIN_STRATEGY})."
+}
+
 # WARP EGRESS (Cloudflare WARP registered through the panel API)
 # ─────────────────────────────────────────────────────────────────────────────
 configure_warp() {
@@ -1801,13 +1858,16 @@ configure_warp() {
         peer_pub=$(echo "$cfg_raw" | jq -r '.config.peers[0].public_key // empty')
         peer_ep=$(echo "$cfg_raw" | jq -r '.config.peers[0].endpoint.host // empty')
 
-        warp_out=$(jq -nc \
-            --arg sk "$wg_priv" \
-            --argjson addr "$addrs" \
-            --argjson res "$reserved" \
-            --arg pk "$peer_pub" \
-            --arg ep "$peer_ep" \
-            '{tag:"warp", protocol:"wireguard", settings:{mtu:1420, secretKey:$sk, address:$addr, reserved:$res, domainStrategy:"ForceIPv4v6", peers:[{publicKey:$pk, endpoint:$ep}], noKernelTun:true}}')
+[[ -n "$WARP_TUN_MTU" ]] || detect_warp_pmtu "$WARP_EP_HOST"
+    warp_out=$(jq -nc \
+        --arg sk "$wg_priv" \
+        --argjson addr "$addrs" \
+        --argjson res "$reserved" \
+        --arg pk "$peer_pub" \
+        --arg ep "$peer_ep" \
+        --arg mtu "$WARP_TUN_MTU" \
+        --arg ds "$WARP_DOMAIN_STRATEGY" \
+        '{tag:"warp", protocol:"wireguard", settings:{mtu:($mtu|tonumber), secretKey:$sk, address:$addr, reserved:$res, domainStrategy:$ds, peers:[{publicKey:$pk, endpoint:$ep}], noKernelTun:true}}')
         has_warp=true
         msg_ok "Cloudflare WARP registered."
     else
@@ -2238,6 +2298,7 @@ main() {
     init_api
     ensure_xray_core
 
+    detect_warp_pmtu "$WARP_EP_HOST"
     install_inbounds
     install_eternal_users
     install_hosts
