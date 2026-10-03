@@ -438,7 +438,7 @@ install_packages() {
         [[ "$version" == "20" || "$version" == "22" ]] && echo "System: Ubuntu $version"
 
         $Pak -y update
-        $Pak -y install curl wget jq bash sudo nginx-full certbot python3-certbot-nginx sqlite3 ufw netcat-openbsd mtr python3 libcap2-bin wireguard-tools openssl
+        $Pak -y install curl wget jq bash sudo nginx-full certbot python3-certbot-nginx sqlite3 ufw netcat-openbsd mtr python3 libcap2-bin wireguard-tools openssl qrencode
         systemctl daemon-reload && systemctl enable --now nginx
     fi
 
@@ -2102,6 +2102,14 @@ show_results() {
         echo -e "  raw / Clash: same subId under /${sub_path}/ and /${clash_path}/"
         echo -e "  WireGuard: .../${sub_path}/${subid_base}-N-wg    AmneziaWG: .../${sub_path}/${subid_base}-N-awg"
         msg_inf "  (use a JSON link in Happ — RoscomVPN routing rides along)"
+        msg_inf "────────────────────────────────────────────────────────────────────────────────"
+        msg_inf "Happ (JSON) subscription #1 — scan the QR to import:"
+        echo -e "  https://${domain}/${json_path}/${subid_base}-1"
+        if command -v qrencode >/dev/null 2>&1 || apt-get install -y qrencode >/dev/null 2>&1; then
+            qrencode -t ANSIUTF8 -s 2 -m 1 "https://${domain}/${json_path}/${subid_base}-1" 2>/dev/null \
+                || qrencode -t UTF8 "https://${domain}/${json_path}/${subid_base}-1" 2>/dev/null \
+                || true
+        fi
         msg_inf "────────────────────────────────────────────────────────────────────────────────"
         msg_inf "SNI masking: ${sni_domain}  |  cover site: ${cover}"
         local tcp_list="reality, ws, grpc, httpupgrade, xhttp, trojan, vmess"
