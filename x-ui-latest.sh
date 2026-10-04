@@ -450,7 +450,7 @@ install_packages() {
         [[ "$version" == "20" || "$version" == "22" ]] && echo "System: Ubuntu $version"
 
         $Pak -y update
-        $Pak -y install curl wget jq bash sudo nginx-full certbot python3-certbot-nginx sqlite3 ufw netcat-openbsd mtr python3 libcap2-bin wireguard-tools openssl qrencode fail2ban
+        $Pak -y install curl wget jq bash sudo nginx-full certbot python3-certbot-nginx sqlite3 ufw netcat-openbsd mtr python3 libcap2-bin wireguard-tools openssl qrencode fail2ban cron iputils-ping
         systemctl daemon-reload && systemctl enable --now nginx
     fi
 
@@ -2098,6 +2098,12 @@ tune_system() {
 # CRON JOBS
 # ─────────────────────────────────────────────────────────────────────────────
 setup_cron() {
+    # Minimal images may lack cron entirely — make sure crontab exists first.
+    if ! command -v crontab >/dev/null 2>&1; then
+        apt-get install -y cron >/dev/null 2>&1 \
+            || { msg_err "cron unavailable — skipping cron jobs."; return 1; }
+        systemctl enable --now cron >/dev/null 2>&1 || true
+    fi
     crontab -l 2>/dev/null | grep -v "certbot\|x-ui\|cloudflareips\|/sbin/reboot" | crontab -
     (crontab -l 2>/dev/null; echo '@daily   x-ui restart > /dev/null 2>&1 && nginx -s reload')    | crontab -
     # Certs were issued with --standalone: renewal needs port 80 free,
