@@ -445,7 +445,7 @@ install_packages() {
         [[ "$version" == "20" || "$version" == "22" ]] && echo "System: Ubuntu $version"
 
         $Pak -y update
-        $Pak -y install curl wget jq bash sudo nginx-full certbot python3-certbot-nginx sqlite3 ufw netcat-openbsd mtr python3 libcap2-bin wireguard-tools openssl qrencode
+        $Pak -y install curl wget jq bash sudo nginx-full certbot python3-certbot-nginx sqlite3 ufw netcat-openbsd mtr python3 libcap2-bin wireguard-tools openssl qrencode fail2ban
         systemctl daemon-reload && systemctl enable --now nginx
     fi
 
@@ -2037,6 +2037,27 @@ EOF
 # ─────────────────────────────────────────────────────────────────────────────
 # SYSTEM TUNING (BBR + kernel params)
 # ─────────────────────────────────────────────────────────────────────────────
+# SSH brute-force protection — same jail the panel host uses.
+setup_fail2ban() {
+    if ! command -v fail2ban-client >/dev/null 2>&1; then
+        apt-get update -qq >/dev/null 2>&1 || true
+        apt-get install -y fail2ban >/dev/null 2>&1 \
+            || { msg_err "fail2ban install failed — skipping."; return 1; }
+    fi
+    mkdir -p /etc/fail2ban/jail.d
+    cat > /etc/fail2ban/jail.d/sshd.local <<'EOF'
+[sshd]
+enabled  = true
+backend  = systemd
+maxretry = 5
+findtime = 10m
+bantime  = 1d
+EOF
+    systemctl enable fail2ban >/dev/null 2>&1
+    systemctl restart fail2ban >/dev/null 2>&1
+    msg_ok "fail2ban is active (sshd: 5 tries / 10m -> ban 1d)."
+}
+
 tune_system() {
     local params=(
         "net.core.default_qdisc=fq"
@@ -2348,7 +2369,8 @@ main() {
 
     install_fake_site
     install_diagnostics
-    tune_system
+tune_system
+    setup_fail2ban
     setup_cron
     setup_firewall
 
