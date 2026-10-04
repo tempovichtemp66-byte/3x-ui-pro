@@ -272,6 +272,20 @@ bash x-ui-latest.sh -uninstall y
 
 ---
 
+## Дюп сторонней подписки (x-ui-sub-dub.sh)
+
+Скопировать чужую подписку к себе, чтобы лимиты устройств провайдера не действовали (запросы идут с вашего сервера):
+
+```bash
+wget -qO x-ui-sub-dub.sh https://raw.githubusercontent.com/tempovichtemp66-byte/3x-ui-pro/main/x-ui-sub-dub.sh
+bash x-ui-sub-dub.sh -url "https://sub.provider/abc" -name alvsub -interval 4
+# → выдаст https://<ваш-домен>/<секрет> — импортируйте в клиент
+bash x-ui-sub-dub.sh -list          # список дюпов
+bash x-ui-sub-dub.sh -remove alvsub # удалить
+```
+
+Скрипт скачивает подписку с клиентским User-Agent (многие провайдеры браузерам отдают 502), проверяет валидность (base64-raw или JSON), кладёт в веб-корень под случайным путём и обновляет по cron (по умолчанию каждые 4 часа). ⚠️ Дюпать можно только то, что вам принадлежит или разрешено.
+
 ## Бэкап и восстановление
 
 ```bash

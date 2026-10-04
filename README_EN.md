@@ -268,6 +268,20 @@ bash x-ui-latest.sh -uninstall y
 
 ---
 
+## Subscription duplicator (x-ui-sub-dub.sh)
+
+Copy a remote subscription onto your server so the provider's per-device limits stop applying (only your server talks to the provider):
+
+```bash
+wget -qO x-ui-sub-dub.sh https://raw.githubusercontent.com/tempovichtemp66-byte/3x-ui-pro/main/x-ui-sub-dub.sh
+bash x-ui-sub-dub.sh -url "https://sub.provider/abc" -name alvsub -interval 4
+# → prints https://<your-domain>/<secret> — import into your client
+bash x-ui-sub-dub.sh -list          # list duplicates
+bash x-ui-sub-dub.sh -remove alvsub # remove
+```
+
+The script fetches the subscription with a VPN-client User-Agent (many providers return 502 to browsers), validates it (base64 raw or JSON), stores it in the web root under a random path and refreshes it via cron (every 4 hours by default). ⚠️ Only duplicate subscriptions you own or are allowed to redistribute.
+
 ## Backup and restore
 
 ```bash
