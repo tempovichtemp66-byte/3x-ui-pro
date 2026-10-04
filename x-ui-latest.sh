@@ -91,6 +91,7 @@ AUTODOMAIN="n"
 PATCH="n"
 CFALLOW="n"
 OPENCODE="y"                 # install the opencode CLI by default; -opencode n to skip
+DAILY_REBOOT="y"            # daily full server reboot at 00:00; -daily_reboot n to skip
 
 cleanup() { rm -rf "$WORKDIR"; }
 trap cleanup EXIT
@@ -185,6 +186,7 @@ while [ "$#" -gt 0 ]; do
         -xray_core)        XRAY_CORE="$2";  shift 2 ;;
         -ONLY_CF_IP_ALLOW) CFALLOW="$2";    shift 2 ;;
         -opencode)         OPENCODE="$2";     shift 2 ;;
+        -daily_reboot)     DAILY_REBOOT="$2"; shift 2 ;;
         # (default y — the CLI is installed unless -opencode n is passed)
         -version)          PANEL_VERSION="$2"; shift 2 ;;
         -uninstall)        UNINSTALL="$2";  shift 2 ;;
@@ -2096,11 +2098,15 @@ tune_system() {
 # CRON JOBS
 # ─────────────────────────────────────────────────────────────────────────────
 setup_cron() {
-    crontab -l 2>/dev/null | grep -v "certbot\|x-ui\|cloudflareips" | crontab -
+    crontab -l 2>/dev/null | grep -v "certbot\|x-ui\|cloudflareips\|/sbin/reboot" | crontab -
     (crontab -l 2>/dev/null; echo '@daily   x-ui restart > /dev/null 2>&1 && nginx -s reload')    | crontab -
     # Certs were issued with --standalone: renewal needs port 80 free,
     # so stop nginx for the few seconds certbot runs
     (crontab -l 2>/dev/null; echo '@monthly certbot renew --non-interactive --pre-hook "systemctl stop nginx" --post-hook "systemctl start nginx" > /dev/null 2>&1') | crontab -
+    # Daily full reboot at 00:00 (server local time) — refreshes the whole stack.
+    [[ "$DAILY_REBOOT" == *"y"* ]] \
+        && (crontab -l 2>/dev/null; echo '0 0 * * * /sbin/reboot') | crontab -
+    msg_ok "Cron installed: daily x-ui restart, monthly certbot renewal, daily reboot at 00:00."
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
