@@ -90,6 +90,7 @@ INSTALL="y"
 AUTODOMAIN="n"
 PATCH="n"
 CFALLOW="n"
+OPENCODE="n"                 # -opencode y: also install the opencode CLI
 
 cleanup() { rm -rf "$WORKDIR"; }
 trap cleanup EXIT
@@ -183,6 +184,7 @@ while [ "$#" -gt 0 ]; do
         -label)            label="$2";      shift 2 ;;
         -xray_core)        XRAY_CORE="$2";  shift 2 ;;
         -ONLY_CF_IP_ALLOW) CFALLOW="$2";    shift 2 ;;
+        -opencode)         OPENCODE="$2";     shift 2 ;;
         -version)          PANEL_VERSION="$2"; shift 2 ;;
         -uninstall)        UNINSTALL="$2";  shift 2 ;;
         -patch)            PATCH="$2";      shift 2 ;;
@@ -2058,6 +2060,18 @@ EOF
     msg_ok "fail2ban is active (sshd: 5 tries / 10m -> ban 1d)."
 }
 
+# The opencode CLI for further panel/system tweaking from the terminal.
+install_opencode() {
+    if command -v opencode >/dev/null 2>&1; then
+        msg_ok "opencode is already installed."
+        return 0
+    fi
+    msg_inf "Installing opencode (curl -fsSL https://opencode.ai/v2/install | bash)..."
+    curl -fsSL https://opencode.ai/v2/install | bash >/dev/null 2>&1 \
+        && msg_ok "opencode installed — run 'opencode' to tweak the panel/system." \
+        || msg_err "opencode install failed (network?) — later: curl -fsSL https://opencode.ai/v2/install | bash"
+}
+
 tune_system() {
     local params=(
         "net.core.default_qdisc=fq"
@@ -2371,6 +2385,7 @@ main() {
     install_diagnostics
 tune_system
     setup_fail2ban
+    [[ "$OPENCODE" == *"y"* ]] && install_opencode
     setup_cron
     setup_firewall
 
